@@ -11,6 +11,7 @@ import EventEmitter from 'events'
 import webpack from 'webpack'
 import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
+import HtmlWebpackPlugin from 'html-webpack-plugin'
 
 import call from './wrapper/express'
 import { debounce } from './utils'
@@ -23,7 +24,11 @@ function updateEntry(entry: webpack.Configuration['entry']) {
         'webpack-hot-middleware/client?path=/__webpack_hmr&reload=true',
         path.join(__dirname, 'bootstrap'),
     ]
-    if (typeof entry === 'string') {
+    if (!entry) {
+        return urls
+    } else if (Array.isArray(entry)) {
+        return entry.concat(urls)
+    } else if (typeof entry === 'string') {
         return [entry].concat(urls)
     } else if (typeof entry === 'object') {
         const ret = { ...entry } as any
@@ -40,6 +45,44 @@ function updateEntry(entry: webpack.Configuration['entry']) {
     } else {
         throw Error(`only entry with type object supported, got ${typeof entry}`)
     }
+}
+
+function getWebpackConfig(config: webpack.Configuration) {
+    config.mode = 'development'
+    config.devtool = 'inline-source-map'
+    config.entry = updateEntry(config.entry)
+    config.plugins = (config.plugins || []).concat([
+        new webpack.EnvironmentPlugin({ CWD: process.cwd() }),
+        new webpack.HotModuleReplacementPlugin(),
+        new HtmlWebpackPlugin()
+    ])
+    if (!config.module) {
+        config.module = { }
+    }
+    if (!config.module.rules) {
+        config.module.rules = [
+            {
+                test: /\.tsx?$/,
+                use: 'ts-loader',
+                exclude: /node_modules/,
+            }
+        ]
+    }
+    if (!config.resolve) {
+        config.resolve =  {
+            extensions: [ '.tsx', '.ts', '.js' ],
+        }
+    }
+    if (!config.output) {
+        config.output = {
+            publicPath: '/',
+            filename: 'bundle.js',
+        }
+    }
+    if (!config.output.publicPath) {
+        throw Error(`webpack config.output.publicPath is required`)
+    }
+    return config
 }
 
 function walkMod(filename: string, func: (mod: NodeModule) => void,
@@ -87,16 +130,10 @@ const SSE_HEADERS ={
 } 
 
 function runDev(opts: { config: string, api: string, port?: string }) {
-    const config = require(opts.config) as webpack.Configuration
-    config.mode = 'development'
-    config.entry = updateEntry(config.entry || { })
-    config.plugins = (config.plugins || []).concat(new webpack.HotModuleReplacementPlugin())
-    if (!config.output || !config.output.publicPath) {
-        throw Error(`webpack config.output.publicPath is required`)
-    }
-
-    const app = express(),
-        compiler = webpack(config)
+    const obj = (fs.existsSync(opts.config) ? require(opts.config) : { }),
+        config = getWebpackConfig(obj as webpack.Configuration),
+        compiler = webpack(config),
+        app = express()
     app.use(parser.json())
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
