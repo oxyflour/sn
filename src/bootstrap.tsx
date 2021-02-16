@@ -15,12 +15,16 @@ if (!root) {
     })
 }
 
-function lazy(fetch: () => any, fallback: JSX.Element) {
+function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element) {
     return function Lazy(props: any) {
-        const [elem, setElem] = useState(fallback)
+        const [elem, setElem] = useState(loading)
         async function init() {
-            const comp = await fetch()
-            setElem(React.createElement(comp.default, props))
+            try {
+                const comp = await fetch()
+                setElem(React.createElement(comp.default, props))
+            } catch (err) {
+                setElem(error)
+            }
         }
         useEffect(() => { init() }, [])
         return elem
@@ -32,7 +36,7 @@ const context = (require as any).context(process.env.PAGES_PATH || '.', true),
     routes = files.filter(file => !file.endsWith('.tsx') && !(file.length > 2 && file.endsWith('/')))
         .map(file => ({
             file,
-            comp: lazy(() => context(file), <div>...</div>),
+            comp: lazy(() => context(file), <div>...</div>, <div>500</div>),
             path: file.slice(1).replace(/\.tsx?$/i, '').replace(/\[([^\]]+)]/, ':$1'),
         })).sort((a, b) => {
             return b.path.split('/').length - a.path.split('/').length
@@ -40,7 +44,8 @@ const context = (require as any).context(process.env.PAGES_PATH || '.', true),
 
 ReactDOM.render(<Router>
 <Switch>
-    { routes.map(({ file, path, comp }) => <Route key={ file } path={ path } component={ comp } />) }
+    { routes.map(({ file, path, comp }) => <Route exact key={ file } path={ path } component={ comp } />) }
+    <Route path="*">404</Route>
 </Switch>
 </Router>, root)
 
