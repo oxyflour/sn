@@ -21,7 +21,7 @@ program.version(version).name(name)
 
 function updateEntry(entry: webpack.Configuration['entry']) {
     const urls = [
-        'webpack-hot-middleware/client?path=/__webpack_hmr&reload=true',
+        path.join('webpack-hot-middleware', 'client') + '?path=/__webpack_hmr&reload=true',
         path.join(__dirname, 'bootstrap'),
     ]
     if (!entry) {
@@ -47,12 +47,12 @@ function updateEntry(entry: webpack.Configuration['entry']) {
     }
 }
 
-function getWebpackConfig(config: webpack.Configuration) {
+function getWebpackConfig(config: webpack.Configuration, pagesPath: string) {
     config.mode = 'development'
     config.devtool = 'inline-source-map'
     config.entry = updateEntry(config.entry)
     config.plugins = (config.plugins || []).concat([
-        new webpack.EnvironmentPlugin({ CWD: process.cwd() }),
+        new webpack.EnvironmentPlugin({ PAGES_PATH: pagesPath }),
         new webpack.HotModuleReplacementPlugin(),
         new HtmlWebpackPlugin()
     ])
@@ -129,16 +129,16 @@ const SSE_HEADERS ={
     'Access-Control-Allow-Origin': '*'
 } 
 
-function runDev(opts: { config: string, api: string, port?: string }) {
-    const obj = (fs.existsSync(opts.config) ? require(opts.config) : { }),
-        config = getWebpackConfig(obj as webpack.Configuration),
+function runDev(opts: { config: string, api: string, pages: string, port?: string }) {
+    const obj = fs.existsSync(opts.config) ? require(opts.config) : { },
+        config = getWebpackConfig(obj as webpack.Configuration, opts.pages),
         compiler = webpack(config),
         app = express()
     app.use(parser.json())
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const hot = getHotMod(opts.api)
+    const hot = fs.existsSync(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
     app.post('/rpc/*', (req, res) => call(req, res, hot.mod))
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
@@ -166,7 +166,8 @@ function runDev(opts: { config: string, api: string, port?: string }) {
 program
     .option('-c, --config <file>', 'webpack config file', path.join(process.cwd(), 'webpack.config.js'))
     .option('-p, --port <number>', 'listen port', '8080')
-    .option('-a, --api <path>', 'api path', path.join(process.cwd(), 'lambda'))
+    .option('-a, --api <path>', 'api path', path.join(process.cwd(), 'src', 'lambda'))
+    .option('-P, --pages <path>', 'pages path', path.join(process.cwd(), 'src', 'pages'))
     .action(runDev)
 
 function runDeploy() {

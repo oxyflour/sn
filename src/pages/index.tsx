@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
 import api from '../lambda'
-import wrapper from '../../wrapper/web'
+import wrapper from '../wrapper/web'
 const lambda = wrapper<typeof api>({ url: '/rpc' })
 
 export default function App() {

@@ -14,7 +14,7 @@ if (!root) {
     })
 }
 
-const App = require(process.env.CWD + '/pages').default
+const App = require(process.env.PAGES_PATH || '.').default
 ReactDOM.render(<App />, root)
 
 const mod = module as any

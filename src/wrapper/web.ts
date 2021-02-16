@@ -1,6 +1,6 @@
 import { hookFunc } from '../utils'
 
-export default <T extends { }>({ url = '' }: {
+export default <T extends { }>({ url = '/rpc' }: {
     url?: string
 }) => hookFunc({ } as T, (...stack) => {
     const entry = stack.map(item => item.propKey),
