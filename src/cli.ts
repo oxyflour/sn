@@ -11,7 +11,6 @@ import EventEmitter from 'events'
 import webpack from 'webpack'
 import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
-import HtmlWebpackPlugin from 'html-webpack-plugin'
 
 import call from './wrapper/express'
 import { debounce } from './utils'
@@ -54,7 +53,6 @@ function getWebpackConfig(config: webpack.Configuration, pagesPath: string) {
     config.plugins = (config.plugins || []).concat([
         new webpack.EnvironmentPlugin({ PAGES_PATH: pagesPath }),
         new webpack.HotModuleReplacementPlugin(),
-        new HtmlWebpackPlugin()
     ])
     if (!config.module) {
         config.module = { }
@@ -139,7 +137,7 @@ function runDev(opts: { config: string, api: string, pages: string, port?: strin
     app.use(WebpackHotMiddleware(compiler))
 
     const hot = fs.existsSync(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
-    app.post('/rpc/*', (req, res) => call(req, res, hot.mod))
+    app.post('/rpc', (req, res) => call(req, res, hot.mod))
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
     })
@@ -155,6 +153,22 @@ function runDev(opts: { config: string, api: string, pages: string, port?: strin
             const data = await new Promise(resolve => sse.once('data', resolve))
             res.write(`data: ${JSON.stringify(data)}\n\n`)
         }
+    })
+
+    app.use((_req, res) => {
+        const { output = { } } = config
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Webpack App</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <script defer src="${output.publicPath}${output.filename}"></script>
+            </head>
+            <body></body>
+            </html>
+        `)
     })
 
     const server = http.createServer(app)
