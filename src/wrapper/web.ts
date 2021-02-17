@@ -1,4 +1,4 @@
-import { hookFunc } from '../utils'
+import { hookFunc } from '../utils/common'
 
 export default <T extends { }>({ url = '/rpc' }: {
     url?: string

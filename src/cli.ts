@@ -3,7 +3,7 @@
 import fs from 'fs'
 import path from 'path'
 import http from 'http'
-import express from 'express'
+import express, { Request, Response } from 'express'
 import parser from 'body-parser'
 import program from 'commander'
 import EventEmitter from 'events'
@@ -13,123 +13,70 @@ import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
 
 import call from './wrapper/express'
-import { debounce } from './utils'
+import { getHotMod } from './utils/module'
+import { kaniko } from './utils/kube'
+import { getWebpackConfig } from './utils/webpack'
 
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
 
-function updateEntry(entry: webpack.Configuration['entry']) {
-    const urls = [
-        path.join('webpack-hot-middleware', 'client') + '?path=/__webpack_hmr&reload=true',
-        path.join(__dirname, 'bootstrap'),
-    ]
-    if (!entry) {
-        return urls
-    } else if (Array.isArray(entry)) {
-        return entry.concat(urls)
-    } else if (typeof entry === 'string') {
-        return [entry].concat(urls)
-    } else if (typeof entry === 'object') {
-        const ret = { ...entry } as any
-        for (const [key, value] of Object.entries(entry)) {
-            if (Array.isArray(value)) {
-                ret[key] = value.concat(urls)
-            } else if (typeof value === 'string') {
-                ret[key] = [value].concat(urls)
-            } else {
-                console.warn(`ignoring entry ${ret[key]}`)
-            }
+const options = {
+    webpack: path.join(process.cwd(), 'webpack.config.js'),
+    pages: path.join(process.cwd(), 'src', 'pages'),
+    api: path.join(process.cwd(), 'src', 'lambda'),
+    port: '8080',
+    deploy: {
+        namespace: 'default',
+        registry: 'pc10.yff.me',
+    },
+}
+if (fs.existsSync(path.join(process.cwd(), 'package.json'))) {
+    const { sn } = require(path.join(process.cwd(), 'package.json'))
+    Object.assign(options, sn)
+}
+
+function handleSSE(sse: EventEmitter) {
+    return async (req: Request, res: Response) => {
+        req
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        })
+        res.write('retry: 10000\n\n')
+        while (true) {
+            const data = await new Promise(resolve => sse.once('data', resolve))
+            res.write(`data: ${JSON.stringify(data)}\n\n`)
         }
-        return ret
-    } else {
-        throw Error(`only entry with type object supported, got ${typeof entry}`)
     }
 }
 
-function getWebpackConfig(config: webpack.Configuration, pagesPath: string) {
-    config.mode = 'development'
-    config.devtool = 'inline-source-map'
-    config.entry = updateEntry(config.entry)
-    config.plugins = (config.plugins || []).concat([
-        new webpack.EnvironmentPlugin({ PAGES_PATH: pagesPath }),
-        new webpack.HotModuleReplacementPlugin(),
-    ])
-    if (!config.module) {
-        config.module = { }
-    }
-    if (!config.module.rules) {
-        config.module.rules = [
-            {
-                test: /\.tsx?$/,
-                use: 'ts-loader',
-                exclude: /node_modules/,
-            }
-        ]
-    }
-    if (!config.resolve) {
-        config.resolve =  {
-            extensions: [ '.tsx', '.ts', '.js' ],
-        }
-    }
-    if (!config.output) {
-        config.output = {
-            publicPath: '/',
-            filename: 'bundle.js',
-        }
-    }
-    if (!config.output.publicPath) {
-        throw Error(`webpack config.output.publicPath is required`)
-    }
-    return config
-}
-
-function walkMod(filename: string, func: (mod: NodeModule) => void,
-        visited = { } as { [filename: string]: boolean }) {
-    const mod = require.cache[filename]
-    if (mod && !visited[filename]) {
-        visited[filename] = true
-        func(mod)
-    }
-    for (const { filename } of mod ? mod.children : []) {
-        walkMod(filename, func, visited)
+function handleHtml(script: string) {
+    return (req: Request, res: Response) => {
+        req
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Webpack App</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <script defer src="${script}"></script>
+            </head>
+            <body></body>
+            </html>
+        `)
     }
 }
 
-function getHotMod(path: string) {
-    require('ts-node').register()
-    const evt = new EventEmitter(),
-        mod = require(path).default,
-        ret = { evt, mod },
-        file = require.resolve(path),
-        watched = { } as { [filename: string]: boolean }
-    const watch = (filename: string) => {
-        if (!watched[filename] && (watched[filename] = true)) {
-            fs.watchFile(filename, { persistent: true, interval: 500 }, () => {
-                evt.emit('change', filename)
-                reload()
-            })
-        }
-    }
-    const reload = debounce(() => {
-        walkMod(file, ({ filename }) => delete require.cache[filename])
-        ret.mod = require(path).default
-        walkMod(file, ({ filename }) => watch(filename))
-        evt.emit('reload')
-    }, 100)
-    walkMod(file, ({ filename }) => watch(filename))
-    return ret
-}
-
-const SSE_HEADERS ={
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*'
-} 
-
-function runDev(opts: { config: string, api: string, pages: string, port?: string }) {
-    const obj = fs.existsSync(opts.config) ? require(opts.config) : { },
-        config = getWebpackConfig(obj as webpack.Configuration, opts.pages),
+program
+    .option('-c, --webpack <file>', 'webpack config file', options.webpack)
+    .option('-P, --pages <path>', 'pages path', options.pages)
+    .option('-a, --api <path>', 'api path', options.api)
+    .option('-p, --port <number>', 'listen port', options.port)
+    .action(function(opts: typeof options) {
+    const config = getWebpackConfig(opts.webpack, opts.pages, 'development'),
         compiler = webpack(config),
         app = express()
     app.use(parser.json())
@@ -137,7 +84,7 @@ function runDev(opts: { config: string, api: string, pages: string, port?: strin
     app.use(WebpackHotMiddleware(compiler))
 
     const hot = fs.existsSync(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
-    app.post('/rpc', (req, res) => call(req, res, hot.mod))
+    app.post('/rpc/*', (req, res) => call(req, res, hot.mod))
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
     })
@@ -146,50 +93,61 @@ function runDev(opts: { config: string, api: string, pages: string, port?: strin
     })
 
     const sse = new EventEmitter()
-    app.get('/sse', async (_req, res) => {
-        res.writeHead(200, SSE_HEADERS)
-        res.write('retry: 10000\n\n')
-        while (true) {
-            const data = await new Promise(resolve => sse.once('data', resolve))
-            res.write(`data: ${JSON.stringify(data)}\n\n`)
-        }
-    })
+    app.get('/sse', handleSSE(sse))
 
-    app.use((_req, res) => {
-        const { output = { } } = config
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>Webpack App</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <script defer src="${output.publicPath}${output.filename}"></script>
-            </head>
-            <body></body>
-            </html>
-        `)
-    })
+    const { output = { } } = config
+    app.use(handleHtml(`${output.publicPath}${output.filename}`))
 
     const server = http.createServer(app)
-    server.listen(opts.port ? parseInt(opts.port) : 8080, () => {
+    server.listen(parseInt(opts.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
-}
-
-program
-    .option('-c, --config <file>', 'webpack config file', path.join(process.cwd(), 'webpack.config.js'))
-    .option('-p, --port <number>', 'listen port', '8080')
-    .option('-a, --api <path>', 'api path', path.join(process.cwd(), 'src', 'lambda'))
-    .option('-P, --pages <path>', 'pages path', path.join(process.cwd(), 'src', 'pages'))
-    .action(runDev)
-
-function runDeploy() {
-}
+})
 
 program
     .command('deploy')
-    .action(runDeploy)
+    .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
+    .option('-r, --registry <path>', 'registry host', options.deploy.registry)
+    .action(async function({ namespace, registry }: typeof options['deploy']) {
+    try {
+        const target = await kaniko.build({ namespace, registry })
+        // TODO
+        target
+    } catch (err) {
+        console.error(err)
+        process.exit(1)
+    }
+})
+
+program
+    .command('build')
+    .action(async function () {
+    const config = getWebpackConfig(options.webpack, options.pages, 'production'),
+        compiler = webpack(config)
+    await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
+})
+
+program
+    .command('start')
+    .action(async function() {
+    const app = express()
+    app.use(parser.json())
+
+    const mod = require(path.join(process.cwd(), 'dist', 'lambda')).default // TODO
+    app.post('/rpc/*', (req, res) => call(req, res, mod))
+
+    const sse = new EventEmitter()
+    app.get('/sse', handleSSE(sse))
+
+    const { output = { } } = getWebpackConfig(options.webpack, options.pages, 'production')
+    app.use(express.static(output.path || 'dist'))
+    app.use(handleHtml(`/${output.filename}`))
+
+    const server = http.createServer(app)
+    server.listen(8080, () => {
+        console.log(`[EX] listening ${JSON.stringify(server.address())}`)
+    })
+})
 
 program.on('command:*', () => {
     program.outputHelp()

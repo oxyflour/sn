@@ -37,7 +37,7 @@ const context = (require as any).context(process.env.PAGES_PATH || '.', true),
         .map(file => ({
             file,
             comp: lazy(() => context(file), <div>...</div>, <div>500</div>),
-            path: file.slice(1).replace(/\.tsx?$/i, '').replace(/\[([^\]]+)]/, ':$1'),
+            path: file.slice(1).replace(/\[([^\]]+)]/, ':$1'),
         })).sort((a, b) => {
             return b.path.split('/').length - a.path.split('/').length
         })

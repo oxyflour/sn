@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import { ApiDefinition } from '../utils'
+import { ApiDefinition } from '../utils/common'
 
 export default <T extends ApiDefinition>(req: Request, res: Response, api: T) => {
     const { entry, args } = req.body as { entry: string[], args: any[] },
