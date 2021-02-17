@@ -4,21 +4,63 @@ import path from 'path'
 import ignore from 'ignore'
 import { S3 } from 'aws-sdk'
 import { c as tarc } from 'tar'
-import { CoreV1Api, KubeConfig } from '@kubernetes/client-node'
+import { CoreV1Api, AppsV1Api, KubeConfig } from '@kubernetes/client-node'
 
 export const cluster = {
-    async deploy() {
+    async deploy({ app, name, image, namespace = 'default', replicas = 2 }: {
+        app: string
+        name: string
+        image: string
+        namespace?: string
+        replicas?: number
+    }) {
+        const kc = new KubeConfig()
+        kc.loadFromDefault()
 
+        const appsV1 = kc.makeApiClient(AppsV1Api)
+        await appsV1.createNamespacedDeployment(namespace, {
+            metadata: { name, labels: { app } },
+            spec: {
+                replicas,
+                selector: {
+                    matchLabels: { app }
+                },
+                template: {
+                    metadata: { labels: { app } },
+                    spec: {
+                        containers: [{
+                            name: 'main',
+                            image,
+                            ports: [{ containerPort: 8080 }]
+                        }]
+                    }
+                }
+            }
+        })
+
+        const coreV1 = kc.makeApiClient(CoreV1Api)
+        await coreV1.createNamespacedService(namespace, {
+            metadata: { name },
+            spec: {
+                selector: { app },
+                ports: [{
+                    protocol: 'TCP',
+                    port: 8080,
+                }]
+            }
+        })
     }
 }
 
 function makeDockerFile(base: string) {
     return`
 FROM ${base}
+WORKDIR /app
 COPY package*.json ./
 RUN npm ci
-COPY . .
+COPY . ./
 RUN sn build
+CMD sn start
 `
 }
 
@@ -44,8 +86,8 @@ export const kaniko = {
         base: string
         cacheRepo?: string
     }) {
-        const { name, version } = require(path.join(process.cwd(), 'package.json')),
-            target = `${registry}/${name.replace(/@/g, '')}:${version}`,
+        const { name, version } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string },
+            image = `${registry}/${name.replace(/@/g, '')}:${version}`,
             prefix = `${name}:${version}`.replace(/@/g, '').replace(/\W/g, '-'),
             uid = `${prefix}-${Math.random().toString(16).slice(2, 10)}`,
             kc = new KubeConfig()
@@ -74,7 +116,7 @@ export const kaniko = {
                     name: 'kaniko',
                     image: 'gcr.io/kaniko-project/executor:debug',
                     args: [
-                        `--destination=${target}`,
+                        `--destination=${image}`,
                         `--context=s3://${s3config.bucket}/${s3key}`,
                         `--dockerfile=/kaniko/.docker/Dockerfile`,
                     ].concat(cacheRepo ? [
@@ -125,6 +167,7 @@ export const kaniko = {
             status = (await api.readNamespacedPodStatus(uid, namespace)).body.status
         }
 
+        console.log(`start building ${uid}`)
         await api.deleteNamespacedConfigMap(uid, namespace)
         while (status && status.phase !== 'Succeeded' && status.phase !== 'Failed') {
             await new Promise(resolve => setTimeout(resolve, 1000))
@@ -137,7 +180,9 @@ export const kaniko = {
             await api.deleteNamespacedPod(uid, namespace)
             console.error(body)
             throw Error(`pod ${uid} failed`)
+        } else {
+            await api.deleteNamespacedPod(uid, namespace)
         }
-        return target
+        return { image, name }
     }
 }

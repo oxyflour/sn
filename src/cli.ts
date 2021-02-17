@@ -14,7 +14,7 @@ import WebpackHotMiddleware from 'webpack-hot-middleware'
 
 import call from './wrapper/express'
 import { getHotMod } from './utils/module'
-import { kaniko } from './utils/kube'
+import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
 
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
@@ -120,13 +120,13 @@ program
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
     .action(async function({ namespace, registry }: typeof options['deploy']) {
     try {
-        const target = await kaniko.build({
+        const { image, name } = await kaniko.build({
             ...options.deploy,
             namespace,
             registry,
         })
-        // TODO
-        target
+        const app = name.replace(/@/g, '').replace(/\W/g, '-')
+        await cluster.deploy({ namespace, image, app, name: app })
     } catch (err) {
         console.error(err)
         process.exit(1)
