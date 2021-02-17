@@ -51,7 +51,7 @@ export const kaniko = {
             kc = new KubeConfig()
         kc.loadFromDefault()
 
-        const s3key = `${prefix}.tgz`,
+        const s3key = `${uid}.tgz`,
             s3 = new S3(s3config),
             buffer = await compress(process.cwd())
         await s3.upload({ Bucket: s3config.bucket, Key: s3key, Body: buffer }).promise()
@@ -126,13 +126,13 @@ export const kaniko = {
         }
 
         await api.deleteNamespacedConfigMap(uid, namespace)
-        while (status && status.phase !== 'Succeed' && status.phase !== 'Failed') {
+        while (status && status.phase !== 'Succeeded' && status.phase !== 'Failed') {
             await new Promise(resolve => setTimeout(resolve, 1000))
             status = (await api.readNamespacedPodStatus(uid, namespace)).body.status
         }
 
-        //await s3.deleteObject({ Bucket: s3config.bucket, Key: s3key })
-        if (status && status.phase !== 'Succeed') {
+        await s3.deleteObject({ Bucket: s3config.bucket, Key: s3key })
+        if (status && status.phase !== 'Succeeded') {
             const { body } = await api.readNamespacedPodLog(uid, namespace, 'kaniko')
             await api.deleteNamespacedPod(uid, namespace)
             console.error(body)
