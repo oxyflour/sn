@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
+import fs from 'mz/fs'
 import path from 'path'
 import http from 'http'
 import express, { Request, Response } from 'express'
@@ -28,6 +28,16 @@ const options = {
     deploy: {
         namespace: 'default',
         registry: 'pc10.yff.me',
+        base: 'pc10.yff.me/node:14',
+        cacheRepo: 'pc10.yff.me/kaniko/cache',
+        s3config: {
+            region: 'us-east-1',
+            s3ForcePathStyle: true,
+            accessKeyId: 'minioadmin',
+            secretAccessKey: 'minioadmin',
+            endpoint: 'http://pc10.yff.me:9000',
+            bucket: 'yff',
+        },
     },
 }
 if (fs.existsSync(path.join(process.cwd(), 'package.json'))) {
@@ -110,7 +120,11 @@ program
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
     .action(async function({ namespace, registry }: typeof options['deploy']) {
     try {
-        const target = await kaniko.build({ namespace, registry })
+        const target = await kaniko.build({
+            ...options.deploy,
+            namespace,
+            registry,
+        })
         // TODO
         target
     } catch (err) {
