@@ -40,6 +40,7 @@ const options = {
         registry: 'pc10.yff.me',
         baseImage: 'pc10.yff.me/node:14',
         kanikoImage: 'gcr.io/kaniko-project/executor:debug',
+        serviceType: 'ClusterIP',
         cacheRepo: 'pc10.yff.me/kaniko/cache',
         npmConfig: undefined as any,
         s3Config: {
@@ -141,7 +142,8 @@ program
     .command('deploy')
     .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
-    .action(runAsyncOrExit(async function({ namespace, registry }: typeof options['deploy']) {
+    .option('-t, --serviceType <type>', 'ClusterIP, NodePort or LoadBalancer', options.deploy.serviceType)
+    .action(runAsyncOrExit(async function({ namespace, registry, serviceType }: typeof options['deploy']) {
     if (!options.deploy.npmConfig) {
         console.log(`INFO: getting registry from npm config list`)
         const [stdout] = await exec(`npm config list --json`),
@@ -159,7 +161,7 @@ program
 
     console.log(`INFO: deploying ${image} to namespace ${namespace}...`)
     const app = name.replace(/@/g, '').replace(/\W/g, '-')
-    await cluster.deploy({ namespace, image, app, name: app })
+    await cluster.deploy({ namespace, image, app, name: app, type: serviceType })
 
     console.log(`INFO: deployed image ${image} as ${app} in namespace ${namespace}`)
 }))

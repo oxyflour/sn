@@ -4,13 +4,14 @@ import path from 'path'
 import ignore from 'ignore'
 import { S3 } from 'aws-sdk'
 import { c as tarc } from 'tar'
-import { CoreV1Api, AppsV1Api, KubeConfig } from '@kubernetes/client-node'
+import { CoreV1Api, AppsV1Api, KubeConfig, V1Service, V1Deployment } from '@kubernetes/client-node'
 
 export const cluster = {
-    async deploy({ app, name, image, namespace = 'default', replicas = 2 }: {
+    async deploy({ app, name, image, type, namespace = 'default', replicas = 2 }: {
         app: string
         name: string
         image: string
+        type: string
         namespace?: string
         replicas?: number
     }) {
@@ -36,12 +37,11 @@ export const cluster = {
                         }
                     }
                 }
-            }
+            } as V1Deployment
         try {
             await appsV1.createNamespacedDeployment(namespace, deployment)
         } catch (err) {
-            await appsV1.patchNamespacedDeployment(name, namespace, deployment,
-                undefined, undefined, undefined, true)
+            await appsV1.replaceNamespacedDeployment(name, namespace, deployment)
         }
 
         const coreV1 = kc.makeApiClient(CoreV1Api),
@@ -49,17 +49,18 @@ export const cluster = {
                 metadata: { name },
                 spec: {
                     selector: { app },
+                    type,
                     ports: [{
                         protocol: 'TCP',
                         port: 8080,
                     }]
                 }
-            }
+            } as V1Service
         try {
-            await coreV1.createNamespacedService(namespace, service)
+            await coreV1.readNamespacedService(name, namespace)
+            console.warn(`INFO: service ${name} already exists in namespace ${namespace}`)
         } catch (err) {
-            await coreV1.patchNamespacedService(name, namespace, service,
-                undefined, undefined, undefined, true)
+            await coreV1.createNamespacedService(namespace, service)
         }
     }
 }
