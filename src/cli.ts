@@ -197,7 +197,7 @@ program
     app.use(parser.json())
 
     const tsconfig = await getTsConfig(),
-        mod = require(path.join(tsconfig.outDir || './dist', 'lambda')).default
+        mod = require(path.join(process.cwd(), tsconfig.outDir || 'dist', 'lambda')).default
     app.post('/rpc/*', (req, res) => call(req, res, mod))
 
     const sse = new EventEmitter()
