@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "bin": {
-    "sn": "./dist/cli.js"
+    "sn": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc"
