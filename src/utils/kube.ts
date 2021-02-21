@@ -62,8 +62,8 @@ COPY package*.json ./
 ${config}
 RUN npm ci
 COPY . ./
-RUN sn build
-CMD sn start
+RUN npx sn build
+CMD npx sn start
 `
 }
 
