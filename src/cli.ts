@@ -172,8 +172,9 @@ program
     const config = getWebpackConfig(options.webpack, options.pages, 'production'),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
-    const tsconfig = await getTsConfig(),
-        program = ts.createProgram([require.resolve(options.api)], tsconfig),
+    const tsconfig = await getTsConfig()
+    console.log(require.resolve(options.api))
+    const program = ts.createProgram([require.resolve(options.api)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
     for (const diagnostic of diags) {
