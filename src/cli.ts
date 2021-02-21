@@ -17,6 +17,7 @@ import call from './wrapper/express'
 import { getHotMod } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
+import { exec } from 'mz/child_process'
 
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
@@ -38,8 +39,10 @@ const options = {
         namespace: 'default',
         registry: 'pc10.yff.me',
         baseImage: 'pc10.yff.me/node:14',
+        kanikoImage: 'gcr.io/kaniko-project/executor:debug',
         cacheRepo: 'pc10.yff.me/kaniko/cache',
-        s3config: {
+        npmConfig: undefined as any,
+        s3Config: {
             region: 'us-east-1',
             s3ForcePathStyle: true,
             accessKeyId: 'minioadmin',
@@ -139,14 +142,19 @@ program
     .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
     .action(runAsyncOrExit(async function({ namespace, registry }: typeof options['deploy']) {
-    try {
-        const { image, name } = await kaniko.build({ ...options.deploy, namespace, registry })
-        const app = name.replace(/@/g, '').replace(/\W/g, '-')
-        await cluster.deploy({ namespace, image, app, name: app })
-    } catch (err) {
-        console.error(err)
-        process.exit(1)
+    if (!options.deploy.npmConfig) {
+        const [stdout] = await exec(`npm config list --json`),
+            npmrc = JSON.parse(stdout),
+            config = options.deploy.npmConfig = { } as any
+        for (const key in npmrc) {
+            if (key.includes('registry')) {
+                config[key] = npmrc[key]
+            }
+        }
     }
+    const { image, name } = await kaniko.build({ ...options.deploy, namespace, registry })
+    const app = name.replace(/@/g, '').replace(/\W/g, '-')
+    await cluster.deploy({ namespace, image, app, name: app })
 }))
 
 program
