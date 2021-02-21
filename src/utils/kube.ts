@@ -40,7 +40,8 @@ export const cluster = {
         try {
             await appsV1.createNamespacedDeployment(namespace, deployment)
         } catch (err) {
-            await appsV1.patchNamespacedDeployment(name, namespace, deployment)
+            await appsV1.patchNamespacedDeployment(name, namespace, deployment,
+                undefined, undefined, undefined, true)
         }
 
         const coreV1 = kc.makeApiClient(CoreV1Api),
@@ -57,7 +58,8 @@ export const cluster = {
         try {
             await coreV1.createNamespacedService(namespace, service)
         } catch (err) {
-            await coreV1.patchNamespacedService(name, namespace, service)
+            await coreV1.patchNamespacedService(name, namespace, service,
+                undefined, undefined, undefined, true)
         }
     }
 }
