@@ -178,7 +178,6 @@ export const kaniko = {
             status = (await api.readNamespacedPodStatus(uid, namespace)).body.status
         }
 
-        console.log(`start building ${uid}`)
         await api.deleteNamespacedConfigMap(uid, namespace)
         while (status && status.phase !== 'Succeeded' && status.phase !== 'Failed') {
             await new Promise(resolve => setTimeout(resolve, 1000))

@@ -143,6 +143,7 @@ program
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
     .action(runAsyncOrExit(async function({ namespace, registry }: typeof options['deploy']) {
     if (!options.deploy.npmConfig) {
+        console.log(`INFO: getting registry from npm config list`)
         const [stdout] = await exec(`npm config list --json`),
             npmrc = JSON.parse(stdout),
             config = options.deploy.npmConfig = { } as any
@@ -152,9 +153,15 @@ program
             }
         }
     }
+
+    console.log(`INFO: building in namespace ${namespace}...`)
     const { image, name } = await kaniko.build({ ...options.deploy, namespace, registry })
+
+    console.log(`INFO: deploying ${image} to namespace ${namespace}...`)
     const app = name.replace(/@/g, '').replace(/\W/g, '-')
     await cluster.deploy({ namespace, image, app, name: app })
+
+    console.log(`INFO: deployed image ${image} as ${app} in namespace ${namespace}`)
 }))
 
 program
@@ -188,7 +195,7 @@ program
     app.use(parser.json())
 
     const tsconfig = await getTsConfig(),
-        mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default
+        mod = require(path.join(tsconfig.outDir || './dist', 'lambda')).default
     app.post('/rpc/*', (req, res) => call(req, res, mod))
 
     const sse = new EventEmitter()
