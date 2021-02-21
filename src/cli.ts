@@ -172,9 +172,8 @@ program
     const config = getWebpackConfig(options.webpack, options.pages, 'production'),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
-    const tsconfig = await getTsConfig()
-    console.log(require.resolve(options.api))
-    const program = ts.createProgram([require.resolve(options.api)], tsconfig),
+    const tsconfig = await getTsConfig(),
+        program = ts.createProgram([require.resolve(options.api)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
     for (const diagnostic of diags) {
@@ -198,7 +197,7 @@ program
     app.use(parser.json())
 
     const tsconfig = await getTsConfig(),
-        mod = require(path.join(process.cwd(), tsconfig.outDir || 'dist', 'lambda')).default
+        mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default
     app.post('/rpc/*', (req, res) => call(req, res, mod))
 
     const sse = new EventEmitter()
