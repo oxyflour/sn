@@ -17,38 +17,50 @@ export const cluster = {
         const kc = new KubeConfig()
         kc.loadFromDefault()
 
-        const appsV1 = kc.makeApiClient(AppsV1Api)
-        await appsV1.createNamespacedDeployment(namespace, {
-            metadata: { name, labels: { app } },
-            spec: {
-                replicas,
-                selector: {
-                    matchLabels: { app }
-                },
-                template: {
-                    metadata: { labels: { app } },
-                    spec: {
-                        containers: [{
-                            name: 'main',
-                            image,
-                            ports: [{ containerPort: 8080 }]
-                        }]
+        const appsV1 = kc.makeApiClient(AppsV1Api),
+            deployment = {
+                metadata: { name, labels: { app } },
+                spec: {
+                    replicas,
+                    selector: {
+                        matchLabels: { app }
+                    },
+                    template: {
+                        metadata: { labels: { app } },
+                        spec: {
+                            containers: [{
+                                name: 'main',
+                                image,
+                                ports: [{ containerPort: 8080 }]
+                            }]
+                        }
                     }
                 }
             }
-        })
+        try {
+            await appsV1.readNamespacedDeployment(name, namespace)
+            await appsV1.patchNamespacedDeployment(name, namespace, deployment)
+        } catch (err) {
+            await appsV1.createNamespacedDeployment(namespace, deployment)
+        }
 
-        const coreV1 = kc.makeApiClient(CoreV1Api)
-        await coreV1.createNamespacedService(namespace, {
-            metadata: { name },
-            spec: {
-                selector: { app },
-                ports: [{
-                    protocol: 'TCP',
-                    port: 8080,
-                }]
+        const coreV1 = kc.makeApiClient(CoreV1Api),
+            service = {
+                metadata: { name },
+                spec: {
+                    selector: { app },
+                    ports: [{
+                        protocol: 'TCP',
+                        port: 8080,
+                    }]
+                }
             }
-        })
+        try {
+            await coreV1.readNamespacedService(name, namespace)
+            await coreV1.patchNamespacedService(name, namespace, service)
+        } catch (err) {
+            await coreV1.createNamespacedService(namespace, service)
+        }
     }
 }
 
