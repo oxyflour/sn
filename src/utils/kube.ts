@@ -79,11 +79,15 @@ export async function compress(cwd: string) {
 }
 
 export const kaniko = {
-    async build({ namespace, registry, s3config, base, cacheRepo = '' }: {
+    async build({ namespace, registry, s3config,
+            baseImage = 'node:14',
+            kanikoImage = 'gcr.io/kaniko-project/executor:debug',
+            cacheRepo = '' }: {
         namespace: string
         registry: string
         s3config: S3.Types.ClientConfiguration & { bucket: string, endpoint: string }
-        base: string
+        baseImage?: string
+        kanikoImage?: string
         cacheRepo?: string
     }) {
         const { name, version } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string },
@@ -98,14 +102,15 @@ export const kaniko = {
             buffer = await compress(process.cwd())
         await s3.upload({ Bucket: s3config.bucket, Key: s3key, Body: buffer }).promise()
 
-        const api = kc.makeApiClient(CoreV1Api)
+        const api = kc.makeApiClient(CoreV1Api),
+            dockerConfig = path.join(os.homedir(), '.docker', 'config.json')
         await api.createNamespacedConfigMap(namespace, {
             metadata: { name: uid },
             data: {
-                dockerConfig: fs.existsSync(path.join(os.homedir(), '.docker', 'config.json')) ?
-                    await fs.readFile(path.join(os.homedir(), '.docker', 'config.json'), 'utf8') : '{}',
-                dockerFile: fs.existsSync('Dockerfile') ?
-                    await fs.readFile('Dockerfile', 'utf8') : makeDockerFile(base),
+                dockerConfig: await fs.exists(dockerConfig) ?
+                    await fs.readFile(dockerConfig, 'utf8') : '{}',
+                dockerFile: await fs.exists('Dockerfile') ?
+                    await fs.readFile('Dockerfile', 'utf8') : makeDockerFile(baseImage),
             }
         })
 
@@ -114,7 +119,7 @@ export const kaniko = {
             spec: {
                 containers: [{
                     name: 'kaniko',
-                    image: 'gcr.io/kaniko-project/executor:debug',
+                    image: kanikoImage,
                     args: [
                         `--destination=${image}`,
                         `--context=s3://${s3config.bucket}/${s3key}`,

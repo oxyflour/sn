@@ -8,6 +8,7 @@ import parser from 'body-parser'
 import program from 'commander'
 import EventEmitter from 'events'
 
+import ts from 'typescript'
 import webpack from 'webpack'
 import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
@@ -20,6 +21,14 @@ import { getWebpackConfig } from './utils/webpack'
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
 
+function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
+    return (...args: any[]) => fn(...args)
+        .catch(err => {
+            console.error(err)
+            process.exit(1)
+        })
+}
+
 const options = {
     webpack: path.join(process.cwd(), 'webpack.config.js'),
     pages: path.join(process.cwd(), 'src', 'pages'),
@@ -28,7 +37,7 @@ const options = {
     deploy: {
         namespace: 'default',
         registry: 'pc10.yff.me',
-        base: 'pc10.yff.me/node:14',
+        baseImage: 'pc10.yff.me/node:14',
         cacheRepo: 'pc10.yff.me/kaniko/cache',
         s3config: {
             region: 'us-east-1',
@@ -80,12 +89,23 @@ function handleHtml(script: string) {
     }
 }
 
+async function getTsConfig() {
+    const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json') || path.join(__dirname, '..', 'tsconfig.json'),
+        { config: json, error } = ts.parseConfigFileTextToJson(configPath, await fs.readFile(configPath, 'utf8'))
+    if (error || !json) {
+        throw Error(`parse ${configPath} failed`)
+    }
+    require('ts-node/register')
+    const { options: tsconfig } = ts.convertCompilerOptionsFromJson(json.compilerOptions, process.cwd())
+    return tsconfig
+}
+
 program
     .option('-c, --webpack <file>', 'webpack config file', options.webpack)
     .option('-P, --pages <path>', 'pages path', options.pages)
     .option('-a, --api <path>', 'api path', options.api)
     .option('-p, --port <number>', 'listen port', options.port)
-    .action(function(opts: typeof options) {
+    .action(runAsyncOrExit(async function(opts: typeof options) {
     const config = getWebpackConfig(opts.webpack, opts.pages, 'development'),
         compiler = webpack(config),
         app = express()
@@ -93,7 +113,7 @@ program
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const hot = fs.existsSync(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
+    const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
     app.post('/rpc/*', (req, res) => call(req, res, hot.mod))
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
@@ -112,42 +132,55 @@ program
     server.listen(parseInt(opts.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
-})
+}))
 
 program
     .command('deploy')
     .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
-    .action(async function({ namespace, registry }: typeof options['deploy']) {
+    .action(runAsyncOrExit(async function({ namespace, registry }: typeof options['deploy']) {
     try {
-        const { image, name } = await kaniko.build({
-            ...options.deploy,
-            namespace,
-            registry,
-        })
+        const { image, name } = await kaniko.build({ ...options.deploy, namespace, registry })
         const app = name.replace(/@/g, '').replace(/\W/g, '-')
         await cluster.deploy({ namespace, image, app, name: app })
     } catch (err) {
         console.error(err)
         process.exit(1)
     }
-})
+}))
 
 program
     .command('build')
-    .action(async function () {
+    .action(runAsyncOrExit(async function () {
     const config = getWebpackConfig(options.webpack, options.pages, 'production'),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
-})
+    const tsconfig = await getTsConfig(),
+        program = ts.createProgram([require.resolve(options.api)], tsconfig),
+        emit = program.emit(),
+        diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
+    for (const diagnostic of diags) {
+        if (diagnostic.file) {
+            let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start!)
+            let message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+            console.log(`${diagnostic.file.fileName} (${line + 1}, ${character + 1}): ${message}`)
+        } else {
+            console.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
+        }
+    }
+    if (emit.emitSkipped) {
+        throw Error(`tsc existed with code 1`)
+    }
+}))
 
 program
     .command('start')
-    .action(async function() {
+    .action(runAsyncOrExit(async function() {
     const app = express()
     app.use(parser.json())
 
-    const mod = require(path.join(process.cwd(), 'dist', 'lambda')).default // TODO
+    const tsconfig = await getTsConfig(),
+        mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default
     app.post('/rpc/*', (req, res) => call(req, res, mod))
 
     const sse = new EventEmitter()
@@ -161,7 +194,7 @@ program
     server.listen(8080, () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
-})
+}))
 
 program.on('command:*', () => {
     program.outputHelp()
