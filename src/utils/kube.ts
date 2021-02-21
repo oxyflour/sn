@@ -38,10 +38,9 @@ export const cluster = {
                 }
             }
         try {
-            await appsV1.readNamespacedDeployment(name, namespace)
-            await appsV1.patchNamespacedDeployment(name, namespace, deployment)
-        } catch (err) {
             await appsV1.createNamespacedDeployment(namespace, deployment)
+        } catch (err) {
+            await appsV1.patchNamespacedDeployment(name, namespace, deployment)
         }
 
         const coreV1 = kc.makeApiClient(CoreV1Api),
@@ -56,10 +55,9 @@ export const cluster = {
                 }
             }
         try {
-            await coreV1.readNamespacedService(name, namespace)
-            await coreV1.patchNamespacedService(name, namespace, service)
-        } catch (err) {
             await coreV1.createNamespacedService(namespace, service)
+        } catch (err) {
+            await coreV1.patchNamespacedService(name, namespace, service)
         }
     }
 }
@@ -70,8 +68,8 @@ async function makeDockerFile(base: string, npmConfig?: any) {
     return`
 FROM ${base}
 WORKDIR /app
-COPY package*.json ./
 ${config}
+COPY package*.json ./
 RUN npm ci
 COPY . ./
 RUN npx sn build
