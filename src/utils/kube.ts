@@ -7,6 +7,16 @@ import { c as tarc } from 'tar'
 import { CoreV1Api, AppsV1Api, KubeConfig, V1Service, V1Deployment } from '@kubernetes/client-node'
 
 export const cluster = {
+    async remove({ name, namespace = 'default' }: { name: string, namespace?: string }) {
+        const kc = new KubeConfig()
+        kc.loadFromDefault()
+
+        const appsV1 = kc.makeApiClient(AppsV1Api)
+        await appsV1.deleteNamespacedDeployment(name, namespace)
+
+        const coreV1 = kc.makeApiClient(CoreV1Api)
+        await coreV1.deleteNamespacedService(name, namespace)
+    },
     async deploy({ app, name, image, type, namespace = 'default', replicas = 2 }: {
         app: string
         name: string
@@ -96,22 +106,20 @@ export async function compress(cwd: string) {
 
 export const kaniko = {
     async build({
-        namespace, registry, s3Config, npmConfig,
+        namespace, image, s3Config, npmConfig,
         baseImage = 'node:14',
         kanikoImage = 'gcr.io/kaniko-project/executor:debug',
         cacheRepo = ''
     }: {
         namespace: string
-        registry: string
+        image: string
         s3Config: S3.Types.ClientConfiguration & { bucket: string, endpoint: string }
         npmConfig?: { },
         baseImage?: string
         kanikoImage?: string
         cacheRepo?: string
     }) {
-        const { name, version } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string },
-            image = `${registry}/${name.replace(/@/g, '')}:${version}`,
-            prefix = `${name}:${version}`.replace(/@/g, '').replace(/\W/g, '-'),
+        const prefix = (image.split('/').pop() || 'no-image').replace(/@/g, '').replace(/\W/g, '-'),
             uid = `${prefix}-${Math.random().toString(16).slice(2, 10)}`,
             kc = new KubeConfig()
         kc.loadFromDefault()

@@ -141,6 +141,14 @@ program
 program
     .command('deploy')
     .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
+    .action(runAsyncOrExit(async function({ namespace }: typeof options['deploy']) {
+    const { name } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string }
+    await cluster.remove({ name, namespace })
+}))
+
+program
+    .command('deploy')
+    .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
     .option('-r, --registry <path>', 'registry host', options.deploy.registry)
     .option('-t, --serviceType <type>', 'ClusterIP, NodePort or LoadBalancer', options.deploy.serviceType)
     .action(runAsyncOrExit(async function({ namespace, registry, serviceType }: typeof options['deploy']) {
@@ -157,7 +165,9 @@ program
     }
 
     console.log(`INFO: building in namespace ${namespace}...`)
-    const { image, name } = await kaniko.build({ ...options.deploy, namespace, registry })
+    const { name, version } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string },
+        image = `${registry}/${name.replace(/@/g, '')}:${version}`
+    await kaniko.build({ ...options.deploy, namespace, image })
 
     console.log(`INFO: deploying ${image} to namespace ${namespace}...`)
     const app = name.replace(/@/g, '').replace(/\W/g, '-')
