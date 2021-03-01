@@ -7,6 +7,8 @@ import express, { Request, Response } from 'express'
 import parser from 'body-parser'
 import program from 'commander'
 import EventEmitter from 'events'
+import fetch from 'node-fetch'
+import { exec } from 'mz/child_process'
 
 import ts from 'typescript'
 import webpack from 'webpack'
@@ -17,7 +19,6 @@ import call from './wrapper/express'
 import { getHotMod } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
-import { exec } from 'mz/child_process'
 
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
@@ -58,38 +59,41 @@ if (fs.existsSync(path.join(process.cwd(), 'package.json'))) {
     Object.assign(options, sn)
 }
 
-function handleSSE(sse: EventEmitter) {
+function handleSSE(sse: EventEmitter, retry = 0) {
     return async (req: Request, res: Response) => {
-        req
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
             'Access-Control-Allow-Origin': '*'
         })
-        res.write('retry: 10000\n\n')
-        while (true) {
-            const data = await new Promise(resolve => sse.once('data', resolve))
-            res.write(`data: ${JSON.stringify(data)}\n\n`)
+        const evt = req.params.evt + ''
+        if (retry) {
+            res.write(`retry: ${retry}\n\n`)
         }
+        sse.on(evt, function send(data) {
+            res.write(`data: ${JSON.stringify(data)}\n\n`)
+            if (data.done) {
+                sse.off(evt, send)
+                res.end()
+            }
+        })
     }
 }
 
 function handleHtml(script: string) {
     return (req: Request, res: Response) => {
         req
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>Webpack App</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <script defer src="${script}"></script>
-            </head>
-            <body></body>
-            </html>
-        `)
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script defer src="${script}"></script>
+</head>
+<body></body>
+</html>`)
     }
 }
 
@@ -118,16 +122,16 @@ program
     app.use(WebpackHotMiddleware(compiler))
 
     const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
-    app.post('/rpc/*', (req, res) => call(req, res, hot.mod))
+    app.post('/rpc/*', (req, res) => call(req, res, hot.mod, sse))
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
     })
     hot.evt.on('reload', () => {
-        sse.emit('data', { reload: true })
+        sse.emit('watch', { reload: true })
     })
 
     const sse = new EventEmitter()
-    app.get('/sse', handleSSE(sse))
+    app.get('/sse/:evt', handleSSE(sse))
 
     const { output = { } } = config
     app.use(handleHtml(`${output.publicPath}${output.filename}`))
@@ -208,10 +212,10 @@ program
 
     const tsconfig = await getTsConfig(),
         mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default
-    app.post('/rpc/*', (req, res) => call(req, res, mod))
+    app.post('/rpc/*', (req, res) => call(req, res, mod, sse))
 
     const sse = new EventEmitter()
-    app.get('/sse', handleSSE(sse))
+    app.get('/sse/:evt', handleSSE(sse))
 
     const { output = { } } = getWebpackConfig(options.webpack, options.pages, 'production')
     app.use(express.static(output.path || 'dist'))
@@ -221,6 +225,26 @@ program
     server.listen(8080, () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
+}))
+
+program
+    .command('stream <url>')
+    .action(runAsyncOrExit(async function(url: string) {
+    const method = 'POST',
+        headers = { Accept: 'application/json', 'Content-Type': 'application/json' }
+    try {
+        const tsconfig = await getTsConfig(),
+            mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default,
+            res = await fetch(url),
+            { entry, args } = await res.json() as { entry: string[], args: any[] },
+            obj = entry.reduce((api, key) => (api as any)[key], mod) as any
+        for await (const value of obj(...args)) {
+            await fetch(url, { method, headers, body: JSON.stringify({ value }) })
+        }
+    } catch (err) {
+        await fetch(url, { method, headers, body: JSON.stringify({ err }) })
+    }
+    await fetch(url, { method, headers, body: JSON.stringify({ done: true }) })
 }))
 
 program.on('command:*', () => {

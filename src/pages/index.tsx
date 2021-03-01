@@ -9,6 +9,9 @@ export default function App() {
     const [message, setMessage] = useState('...')
     async function init() {
         setMessage(await lambda.hello())
+        for await (const value of lambda.stream()) {
+            console.log(value)
+        }
     }
     useEffect(() => { init() }, [])
     return <div>
