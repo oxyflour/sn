@@ -114,9 +114,8 @@ export const cluster = {
 }
 
 async function makeDockerFile(base: string, npmConfig?: any) {
-    const { name } = require(path.join(__dirname, '..', '..', 'package.json')),
-        config = Object.entries(npmConfig || { })
-            .map(([key, val]) => `RUN npm config set ${key} ${val}`).join('\n')
+    const config = Object.entries(npmConfig || { })
+        .map(([key, val]) => `RUN npm config set ${key} ${val}`).join('\n')
     return`
 FROM ${base}
 WORKDIR /app
@@ -124,8 +123,8 @@ ${config}
 COPY package*.json ./
 RUN npm ci
 COPY . ./
-RUN npx --no-install -p ${name} sn build
-CMD npx --no-install -p ${name} sn start
+RUN npx sn build
+CMD npx sn start
 `
 }
 
