@@ -146,18 +146,18 @@ program
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new Emitter() }
+    const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new Emitter() },
+        emitter = new Emitter()
     app.post('/rpc/*', (req, res) => rpc(req, res, hot.mod, emitter))
+    app.post('/pip/*', (req, res) => pip(req, res, emitter))
+    app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
+
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
     })
     hot.evt.on('reload', () => {
         emitter.emit('watch', { reload: true })
     })
-
-    const emitter = new Emitter()
-    app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
-    app.post('/pip/:evt', (req, res) => pip(req, res, emitter))
 
     const { output = { } } = config
     app.use((req, res) => html(req, res, `${output.publicPath}${output.filename}`))
@@ -237,12 +237,11 @@ program
     app.use(parser.json())
 
     const tsconfig = await getTsConfig(),
-        mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default
+        mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default,
+        emitter = new Emitter()
     app.post('/rpc/*', (req, res) => rpc(req, res, mod, emitter))
-
-    const emitter = new Emitter()
+    app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
-    app.post('/pip/:evt', (req, res) => pip(req, res, emitter))
 
     const { output = { } } = getWebpackConfig(options.webpack, options.pages, 'production')
     app.use(express.static(output.path || 'dist'))
