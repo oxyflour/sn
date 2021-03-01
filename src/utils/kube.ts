@@ -114,8 +114,9 @@ export const cluster = {
 }
 
 async function makeDockerFile(base: string, npmConfig?: any) {
-    const config = Object.entries(npmConfig || { })
-        .map(([key, val]) => `RUN npm config set ${key} ${val}`).join('\n')
+    const { name } = require(path.join(__dirname, '..', '..', 'package.json')),
+        config = Object.entries(npmConfig || { })
+            .map(([key, val]) => `RUN npm config set ${key} ${val}`).join('\n')
     return`
 FROM ${base}
 WORKDIR /app
@@ -123,8 +124,8 @@ ${config}
 COPY package*.json ./
 RUN npm ci
 COPY . ./
-RUN npx sn build
-CMD npx sn start
+RUN npx -p ${name} sn build
+CMD npx -p ${name} sn start
 `
 }
 
@@ -173,9 +174,11 @@ export const kaniko = {
             metadata: { name: uid },
             data: {
                 dockerConfig: await fs.exists(dockerConfig) ?
-                    await fs.readFile(dockerConfig, 'utf8') : '{}',
+                    await fs.readFile(dockerConfig, 'utf8') :
+                    '{}',
                 dockerFile: await fs.exists('Dockerfile') ?
-                    await fs.readFile('Dockerfile', 'utf8') : await makeDockerFile(baseImage, npmConfig),
+                    await fs.readFile('Dockerfile', 'utf8') :
+                    await makeDockerFile(baseImage, npmConfig),
             }
         })
 

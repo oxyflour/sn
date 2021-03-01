@@ -102,9 +102,9 @@ async function pip(req: Request, res: Response, emitter: Emitter) {
     if (url) {
         await store.set(`pip/${evt}`, { entry, args })
         if (image) {
-            const name = `exe-${evt}`,
-                command = ['npx', 'sn', 'pip', evt, url]
-            await cluster.fork({ image, namespace, name, command })
+            const pod = `exe-${evt}`,
+                command = ['npx', '-p', name, 'sn', 'pip', evt, url]
+            await cluster.fork({ image, namespace, command, name: pod })
         } else {
             fork(__filename, ['pip', evt, url])
         }
