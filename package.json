@@ -22,8 +22,7 @@
     "@types/react-router-dom": "^5.1.7",
     "@types/webpack": "^4.41.26",
     "@types/webpack-dev-middleware": "^4.1.0",
-    "@types/webpack-hot-middleware": "^2.25.3",
-    "node-fetch": "^2.6.1"
+    "@types/webpack-hot-middleware": "^2.25.3"
   },
   "dependencies": {
     "@kubernetes/client-node": "^0.13.2",
@@ -34,6 +33,7 @@
     "html-webpack-plugin": "^5.1.0",
     "ignore": "^5.1.8",
     "mz": "^2.7.0",
+    "node-fetch": "^2.6.1",
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
     "react-router-dom": "^5.2.0",
