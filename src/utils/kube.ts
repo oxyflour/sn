@@ -124,8 +124,8 @@ ${config}
 COPY package*.json ./
 RUN npm ci
 COPY . ./
-RUN npx -p ${name} sn build
-CMD npx -p ${name} sn start
+RUN npx --no-install -p ${name} sn build
+CMD npx --no-install -p ${name} sn start
 `
 }
 
