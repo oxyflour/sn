@@ -6,19 +6,20 @@ import http from 'http'
 import express, { Request, Response } from 'express'
 import parser from 'body-parser'
 import program from 'commander'
-import EventEmitter from 'events'
 import fetch from 'node-fetch'
-import { exec } from 'mz/child_process'
+import { exec, fork } from 'mz/child_process'
 
 import ts from 'typescript'
 import webpack from 'webpack'
 import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
 
-import call from './wrapper/express'
+import rpc from './wrapper/express'
 import { getHotMod } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
+import Store from './utils/store'
+import Emitter from './utils/emitter'
 
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
@@ -59,41 +60,63 @@ if (fs.existsSync(path.join(process.cwd(), 'package.json'))) {
     Object.assign(options, sn)
 }
 
-function handleSSE(sse: EventEmitter, retry = 0) {
-    return async (req: Request, res: Response) => {
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
-        })
-        const evt = req.params.evt + ''
-        if (retry) {
-            res.write(`retry: ${retry}\n\n`)
-        }
-        sse.on(evt, function send(data) {
-            res.write(`data: ${JSON.stringify(data)}\n\n`)
-            if (data.done) {
-                sse.off(evt, send)
-                res.end()
-            }
-        })
+async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+    })
+    const evt = req.params.evt + ''
+    if (retry) {
+        res.write(`retry: ${retry}\n\n`)
     }
+    emitter.on(evt, function send(data) {
+        res.write(`data: ${JSON.stringify(data)}\n\n`)
+        if (data.done) {
+            emitter.off(evt, send)
+            res.end()
+        }
+    })
 }
 
-function handleHtml(script: string) {
-    return (req: Request, res: Response) => {
-        req
-        res.send(`<!DOCTYPE html>
+function html(req: Request, res: Response, script: string) {
+    req
+    res.send(`<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>window.DEPLOY_IMAGE="${process.env.DEPLOY_IMAGE || ''}"</script>
+    <script>window.DEPLOY_NAMESPACE="${process.env.DEPLOY_NAMESPACE || ''}"</script>
     <script defer src="${script}"></script>
 </head>
 <body></body>
 </html>`)
+}
+
+const store = new Store(options.deploy.s3Config)
+async function pip(req: Request, res: Response, emitter: Emitter) {
+    const { evt, url, name, namespace, image, entry, args, ack, err, value, done } = req.body
+    if (url) {
+        await store.set(`pip/${evt}`, { entry, args })
+        if (image) {
+            await cluster.fork({ image, namespace, name: `exe-${evt}`, command: ['node', 'dist/cli.js', 'pip', evt, url] })
+        } else {
+            fork(__filename, ['pip', evt, url])
+        }
+        res.send(await new Promise(resolve => emitter.once(`ack-${evt}`, resolve)))
+    } else if (ack) {
+        emitter.emit(`ack-${evt}`, ack)
+        res.send(await store.get(`pip/${evt}`))
+        await store.del(`pip/${evt}`)
+    } else {
+        emitter.emit(evt, { err, value, done })
+        res.send({ })
+        if (done && name) {
+            await cluster.kill({ name, namespace })
+        }
     }
 }
 
@@ -121,20 +144,21 @@ program
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new EventEmitter() }
-    app.post('/rpc/*', (req, res) => call(req, res, hot.mod, sse))
+    const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new Emitter() }
+    app.post('/rpc/*', (req, res) => rpc(req, res, hot.mod, emitter))
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
     })
     hot.evt.on('reload', () => {
-        sse.emit('watch', { reload: true })
+        emitter.emit('watch', { reload: true })
     })
 
-    const sse = new EventEmitter()
-    app.get('/sse/:evt', handleSSE(sse))
+    const emitter = new Emitter()
+    app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
+    app.post('/pip/:evt', (req, res) => pip(req, res, emitter))
 
     const { output = { } } = config
-    app.use(handleHtml(`${output.publicPath}${output.filename}`))
+    app.use((req, res) => html(req, res, `${output.publicPath}${output.filename}`))
 
     const server = http.createServer(app)
     server.listen(parseInt(opts.port), () => {
@@ -143,7 +167,7 @@ program
 }))
 
 program
-    .command('deploy')
+    .command('remove')
     .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
     .action(runAsyncOrExit(async function({ namespace }: typeof options['deploy']) {
     const { name } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string }
@@ -212,14 +236,15 @@ program
 
     const tsconfig = await getTsConfig(),
         mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default
-    app.post('/rpc/*', (req, res) => call(req, res, mod, sse))
+    app.post('/rpc/*', (req, res) => rpc(req, res, mod, emitter))
 
-    const sse = new EventEmitter()
-    app.get('/sse/:evt', handleSSE(sse))
+    const emitter = new Emitter()
+    app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
+    app.post('/pip/:evt', (req, res) => pip(req, res, emitter))
 
     const { output = { } } = getWebpackConfig(options.webpack, options.pages, 'production')
     app.use(express.static(output.path || 'dist'))
-    app.use(handleHtml(`/${output.filename}`))
+    app.use((req, res) => html(req, res, `/${output.filename}`))
 
     const server = http.createServer(app)
     server.listen(8080, () => {
@@ -228,23 +253,28 @@ program
 }))
 
 program
-    .command('stream <url>')
-    .action(runAsyncOrExit(async function(url: string) {
-    const method = 'POST',
-        headers = { Accept: 'application/json', 'Content-Type': 'application/json' }
+    .command('pip <evt> <url>')
+    .action(runAsyncOrExit(async function(evt: string, url: string) {
+    async function emit(data: any) {
+        const method = 'POST',
+            headers = { Accept: 'application/json', 'Content-Type': 'application/json' },
+            req = await fetch(url, { method, headers, body: JSON.stringify({ evt, ...data }) })
+        return await req.json()
+    }
     try {
         const tsconfig = await getTsConfig(),
             mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default,
-            res = await fetch(url),
-            { entry, args } = await res.json() as { entry: string[], args: any[] },
+            { entry, args } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[] },
             obj = entry.reduce((api, key) => (api as any)[key], mod) as any
         for await (const value of obj(...args)) {
-            await fetch(url, { method, headers, body: JSON.stringify({ value }) })
+            await emit({ value })
         }
     } catch (err) {
-        await fetch(url, { method, headers, body: JSON.stringify({ err }) })
+        const { message, name } = err || { }
+        await emit({ err: { ...err, message, name } })
     }
-    await fetch(url, { method, headers, body: JSON.stringify({ done: true }) })
+    await emit({ name: process.env.FORK_NAME, namespace: process.env.FORK_NAMESPACE, done: true })
+    process.exit()
 }))
 
 program.on('command:*', () => {

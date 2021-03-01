@@ -7,6 +7,37 @@ import { c as tarc } from 'tar'
 import { CoreV1Api, AppsV1Api, KubeConfig, V1Service, V1Deployment } from '@kubernetes/client-node'
 
 export const cluster = {
+    async fork({ name, image, command, namespace = 'default' }: { name: string, image: string, command: string[], namespace?: string }) {
+        const kc = new KubeConfig()
+        kc.loadFromDefault()
+
+        const coreV1 = kc.makeApiClient(CoreV1Api)
+        await coreV1.createNamespacedPod(namespace, {
+            metadata: { name },
+            spec: {
+                containers: [{
+                    name: 'main',
+                    image,
+                    command,
+                    env: [{
+                        name: 'FORK_NAME',
+                        value: name
+                    }, {
+                        name: 'FORK_NAMESPACE',
+                        value: namespace
+                    }]
+                }],
+                restartPolicy: 'Never'
+            }
+        })
+    },
+    async kill({ name, namespace = 'default' }: { name: string, namespace?: string }) {
+        const kc = new KubeConfig()
+        kc.loadFromDefault()
+
+        const coreV1 = kc.makeApiClient(CoreV1Api)
+        await coreV1.deleteNamespacedPod(name, namespace)
+    },
     async remove({ name, namespace = 'default' }: { name: string, namespace?: string }) {
         const kc = new KubeConfig()
         kc.loadFromDefault()
@@ -17,7 +48,7 @@ export const cluster = {
         const coreV1 = kc.makeApiClient(CoreV1Api)
         await coreV1.deleteNamespacedService(name, namespace)
     },
-    async deploy({ app, name, image, type, namespace = 'default', replicas = 2 }: {
+    async deploy({ app, name, image, type, namespace = 'default', replicas = 1 }: {
         app: string
         name: string
         image: string
@@ -42,7 +73,14 @@ export const cluster = {
                             containers: [{
                                 name: 'main',
                                 image,
-                                ports: [{ containerPort: 8080 }]
+                                ports: [{ containerPort: 8080 }],
+                                env: [{
+                                    name: 'DEPLOY_IMAGE',
+                                    value: image
+                                }, {
+                                    name: 'DEPLOY_NAMESPACE',
+                                    value: namespace
+                                }]
                             }]
                         }
                     }
@@ -214,6 +252,5 @@ export const kaniko = {
         } else {
             await api.deleteNamespacedPod(uid, namespace)
         }
-        return { image, name }
     }
 }

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import api from '../lambda'
 import wrapper from '../wrapper/web'
-const lambda = wrapper<typeof api>({ url: '/rpc' })
+const lambda = wrapper<typeof api>({ })
 
 export default function App() {
     const [message, setMessage] = useState('...')

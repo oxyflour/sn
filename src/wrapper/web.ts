@@ -1,22 +1,22 @@
 import { hookFunc } from '../utils/common'
 
-export default <T extends { }>({ url = '/rpc' }: {
+export default <T extends { }>({ url = '' }: {
     url?: string
 }) => hookFunc({ } as T, (...stack) => {
     const entry = stack.map(item => item.propKey),
         part = entry.slice().reverse().join('/')
     return (...args: any[]) => {
-        async function post(ext: any) {
+        async function post(url: string, ext: any) {
             const body = JSON.stringify({ entry, args, ...ext }),
                 method = 'POST',
                 headers = { Accept: 'application/json', 'Content-Type': 'application/json' },
-                req = await fetch(`${url}/${part}`, { headers, method, body })
+                req = await fetch(url, { headers, method, body })
             return await req.json()
         }
 
         const then = async (resolve: Function, reject: Function) => {
             try {
-                const { err, ret } = await post({ })
+                const { err, ret } = await post(`${url}/rpc/${part}`, { })
                 if (err) {
                     reject(err)
                 } else {
@@ -33,7 +33,7 @@ export default <T extends { }>({ url = '/rpc' }: {
         const next = async () => {
             if (!sse) {
                 const evt = Math.random().toString(16).slice(2, 10)
-                sse = new EventSource(`/sse/${evt}`)
+                sse = new EventSource(`${url}/sse/${evt}`)
                 sse.onmessage = evt => {
                     const data = JSON.parse(evt.data),
                         func = callbacks.shift()
@@ -43,7 +43,8 @@ export default <T extends { }>({ url = '/rpc' }: {
                         sse.onmessage = null
                     }
                 }
-                post({ evt })
+                const target = Object.assign(new URL(location.href), { pathname: `/pip/${evt}` })
+                post(`${url}/pip/${part}`, { evt, url: target.toString(), image: (window as any).DEPLOY_IMAGE })
             }
             const data = queue.unshift() || await new Promise(func => callbacks.push(func)) as any
             if (data.err) {
