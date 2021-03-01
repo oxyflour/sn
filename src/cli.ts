@@ -88,8 +88,8 @@ function html(req: Request, res: Response, script: string) {
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script>window.DEPLOY_IMAGE="${process.env.DEPLOY_IMAGE || ''}"</script>
-    <script>window.DEPLOY_NAMESPACE="${process.env.DEPLOY_NAMESPACE || ''}"</script>
+    <script>window.SN_DEPLOY_IMAGE="${process.env.SN_DEPLOY_IMAGE || ''}"</script>
+    <script>window.SN_DEPLOY_NAMESPACE="${process.env.SN_DEPLOY_NAMESPACE || ''}"</script>
     <script defer src="${script}"></script>
 </head>
 <body></body>
@@ -114,6 +114,7 @@ async function pip(req: Request, res: Response, emitter: Emitter) {
     } else {
         emitter.emit(evt, { err, value, done })
         res.send({ })
+        console.log(done, name, namespace)
         if (done && name) {
             await cluster.kill({ name, namespace })
         }
@@ -273,7 +274,9 @@ program
         const { message, name } = err || { }
         await emit({ err: { ...err, message, name } })
     }
-    await emit({ name: process.env.FORK_NAME, namespace: process.env.FORK_NAMESPACE, done: true })
+    const name = process.env.SN_FORK_NAME,
+        namespace = process.env.SN_FORK_NAMESPACE
+    await emit({ name, namespace, done: true })
     process.exit()
 }))
 

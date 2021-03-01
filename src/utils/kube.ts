@@ -20,10 +20,10 @@ export const cluster = {
                     image,
                     command,
                     env: [{
-                        name: 'FORK_NAME',
+                        name: 'SN_FORK_NAME',
                         value: name
                     }, {
-                        name: 'FORK_NAMESPACE',
+                        name: 'SN_FORK_NAMESPACE',
                         value: namespace
                     }]
                 }],
@@ -75,10 +75,10 @@ export const cluster = {
                                 image,
                                 ports: [{ containerPort: 8080 }],
                                 env: [{
-                                    name: 'DEPLOY_IMAGE',
+                                    name: 'SN_DEPLOY_IMAGE',
                                     value: image
                                 }, {
-                                    name: 'DEPLOY_NAMESPACE',
+                                    name: 'SN_DEPLOY_NAMESPACE',
                                     value: namespace
                                 }]
                             }]

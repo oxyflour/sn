@@ -43,8 +43,10 @@ export default <T extends { }>({ url = '' }: {
                         sse.onmessage = null
                     }
                 }
-                const target = Object.assign(new URL(location.href), { pathname: `/pip/${evt}` })
-                post(`${url}/pip/${part}`, { evt, url: target.toString(), image: (window as any).DEPLOY_IMAGE })
+                const target = Object.assign(new URL(location.href), { pathname: `/pip/${evt}` }),
+                    image = (window as any).SN_DEPLOY_IMAGE,
+                    namespace = (window as any).SN_DEPLOY_NAMESPACE
+                post(`${url}/pip/${part}`, { evt, image, namespace, url: target.toString() })
             }
             const data = queue.unshift() || await new Promise(func => callbacks.push(func)) as any
             if (data.err) {
