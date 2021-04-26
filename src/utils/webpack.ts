@@ -1,6 +1,7 @@
 import { fs } from 'mz'
 import path from 'path'
 import webpack from 'webpack'
+import { VueLoaderPlugin } from 'vue-loader'
 
 function updateEntry(entry: webpack.Configuration['entry'], mode = 'development') {
     const urls = [
@@ -40,6 +41,7 @@ export function getWebpackConfig(configPath: string, pagesPath: string,
     config.plugins = (config.plugins || []).concat([
         new webpack.EnvironmentPlugin({ PAGES_PATH: pagesPath }),
         new webpack.HotModuleReplacementPlugin(),
+        new VueLoaderPlugin() as any,
     ])
     if (!config.module) {
         config.module = { }
@@ -50,12 +52,25 @@ export function getWebpackConfig(configPath: string, pagesPath: string,
                 test: /\.tsx?$/,
                 use: 'ts-loader',
                 exclude: /node_modules/,
+            },
+            {
+                test: /\.vue$/,
+                use: {
+                    loader: 'vue-loader',
+                },
+            },
+            {
+                test: /\.css$/,
+                use: [
+                    'vue-style-loader',
+                    'css-loader'
+                ]
             }
         ]
     }
     if (!config.resolve) {
         config.resolve =  {
-            extensions: [ '.tsx', '.ts', '.js' ],
+            extensions: [ '.tsx', '.ts', '.js', '.vue' ],
         }
     }
     if (!config.output) {
