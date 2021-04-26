@@ -27,20 +27,20 @@ function makeLink(history: any) {
     } as ThisTypedComponentOptionsWithArrayProps<Vue, any, any, any, any>
 }
 
-export default class Wrapper extends Component<{ component: any, history: any }> {
+export default class Wrapper extends Component<{ route: any, component: any, history: any }> {
     ref = null as HTMLDivElement | null
     vue = null as Vue | null
     componentDidMount() {
         if (this.ref && !this.vue) {
+            console.log(this.ref, this.vue)
             const comp = 'vue-comp-' + Math.random().toString(16).slice(2, 10),
                 el = document.createElement('div'),
-                { history, component } = this.props,
+                { history, component, route } = this.props,
                 components = Object.assign({ }, component.components, { Link: makeLink(history) })
             this.ref.appendChild(el)
             this.vue = new Vue({
                 el,
-                propsData: this.props,
-                render: createElement => createElement(comp),
+                render: createElement => createElement(comp, { props: route }),
                 components: { [comp]: { ...component, components } },
             })
         }

@@ -28,7 +28,7 @@ function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: 
                 opts.ext === 'tsx' || !opts.ext ?
                     setElem(React.createElement(comp.default, props)) :
                 opts.ext === 'vue' ?
-                    setElem(<VueWrapper history={ history } component={ comp.default } />) :
+                    setElem(<VueWrapper route={ props } history={ history } component={ comp.default } />) :
                     setElem(<div>unknown component fetched: {JSON.stringify(comp)}</div>)
             } catch (err) {
                 console.log(err)
