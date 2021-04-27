@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import api from '../lambda'
-import wrapper from '../wrapper/web'
-const lambda = wrapper<typeof api>({ })
+import lambda from '../lambda'
 
 export default function App() {
     const [message, setMessage] = useState('...')

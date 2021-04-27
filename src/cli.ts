@@ -139,7 +139,7 @@ program
     .option('-a, --api <path>', 'api path', options.api)
     .option('-p, --port <number>', 'listen port', options.port)
     .action(runAsyncOrExit(async function(opts: typeof options) {
-    const config = getWebpackConfig(opts.webpack, opts.pages, 'development'),
+    const config = getWebpackConfig(opts.webpack, opts.pages, opts.api, 'development'),
         compiler = webpack(config),
         app = express()
     app.use(parser.json())
@@ -209,7 +209,7 @@ program
 program
     .command('build')
     .action(runAsyncOrExit(async function () {
-    const config = getWebpackConfig(options.webpack, options.pages, 'production'),
+    const config = getWebpackConfig(options.webpack, options.pages, options.api, 'production'),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
     const tsconfig = await getTsConfig(),
@@ -243,7 +243,7 @@ program
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
-    const { output = { } } = getWebpackConfig(options.webpack, options.pages, 'production')
+    const { output = { } } = getWebpackConfig(options.webpack, options.pages, options.api, 'production')
     app.use(express.static(output.path || 'dist'))
     app.use((req, res) => html(req, res, `/${output.filename}`))
 

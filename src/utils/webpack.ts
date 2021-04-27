@@ -33,8 +33,8 @@ function updateEntry(entry: webpack.Configuration['entry'], mode = 'development'
     }
 }
 
-export function getWebpackConfig(configPath: string, pagesPath: string,
-        mode = 'development' as webpack.Configuration['mode']) {
+export function getWebpackConfig(configPath: string, pagesPath: string, apiPath: string,
+        mode = 'development' as webpack.Configuration['mode'], options = { } as any) {
     const config = (fs.existsSync(configPath) ? require(configPath) : { }) as webpack.Configuration
     config.mode = mode
     config.entry = updateEntry(config.entry, mode)
@@ -49,15 +49,20 @@ export function getWebpackConfig(configPath: string, pagesPath: string,
     if (!config.module.rules) {
         config.module.rules = [
             {
+                test: /\.(js|mjs|jsx|ts|tsx)$/,
+                use: {
+                    loader: require.resolve('./loader'),
+                    options: { apiPath, options },
+                }
+            },
+            {
                 test: /\.tsx?$/,
                 use: 'ts-loader',
                 exclude: /node_modules/,
             },
             {
                 test: /\.vue$/,
-                use: {
-                    loader: 'vue-loader',
-                },
+                use: 'vue-loader',
             },
             {
                 test: /\.css$/,

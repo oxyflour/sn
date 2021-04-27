@@ -32,7 +32,6 @@ export default class Wrapper extends Component<{ route: any, component: any, his
     vue = null as Vue | null
     componentDidMount() {
         if (this.ref && !this.vue) {
-            console.log(this.ref, this.vue)
             const comp = 'vue-comp-' + Math.random().toString(16).slice(2, 10),
                 el = document.createElement('div'),
                 { history, component, route } = this.props,
