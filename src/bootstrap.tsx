@@ -18,16 +18,16 @@ if (!root) {
     })
 }
 
-function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: { ext: string }) {
+function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: { tsx: boolean, vue: boolean }) {
     return function Lazy(props: any) {
         const [elem, setElem] = useState(loading),
             history = useHistory()
         async function init() {
             try {
                 const comp = await fetch()
-                opts.ext === 'tsx' || !opts.ext ?
+                opts.tsx ?
                     setElem(React.createElement(comp.default, props)) :
-                opts.ext === 'vue' ?
+                opts.vue ?
                     setElem(<VueWrapper route={ props } history={ history } component={ comp.default } />) :
                     setElem(<div>unknown component fetched: {JSON.stringify(comp)}</div>)
             } catch (err) {
@@ -48,11 +48,12 @@ const context = (require as any).context(process.env.PAGES_PATH || '.', true),
         })
         .map(file => ({
             file,
-            ext: (files.find(item => item.startsWith(file + '.')) || file).slice(file.length + 1)
+            tsx: files.includes(file + '.tsx') || files.includes(file + 'index.tsx'),
+            vue: files.includes(file + '.vue') || files.includes(file + 'index.vue'),
         }))
-        .map(({ file, ext }) => ({
+        .map(({ file, tsx, vue }) => ({
             file,
-            comp: lazy(() => context(file), <div>...</div>, <div>500</div>, { ext }),
+            comp: lazy(() => context(file), <div>...</div>, <div>500</div>, { tsx, vue }),
             path: file.slice(1).replace(/\[([^\]]+)]/, ':$1'),
         })).sort((a, b) => {
             return b.path.split('/').length - a.path.split('/').length

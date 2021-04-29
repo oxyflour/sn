@@ -129,16 +129,50 @@ async function getTsConfig() {
         throw Error(`parse ${configPath} failed`)
     }
     require('ts-node/register')
-    const { options: tsconfig } = ts.convertCompilerOptionsFromJson(json.compilerOptions, process.cwd())
-    return tsconfig
+    return ts.convertCompilerOptionsFromJson(json.compilerOptions, process.cwd()).options
+}
+
+async function prepareDirectory() {
+    const cwd = process.cwd()
+    if (!(await fs.exists(path.join(cwd, 'tsconfig.json')))) {
+        await fs.copyFile(path.join(__dirname, '..', 'tsconfig.json'), path.join(cwd, 'tsconfig.json'))
+    }
+    const deps = [
+        'react',
+        'vue',
+    ].filter(mod => {
+        try {
+            require.resolve(mod, { paths: [cwd] })
+            return false
+        } catch (err) {
+            if (err.code === 'MODULE_NOT_FOUND') {
+                return true
+            } else {
+                throw err
+            }
+        }
+    })
+    if (deps.length) {
+        await exec(`npm i -S ${deps.join(' ')}`)
+    }
+    const devDeps = [
+        '@types/react',
+        '@types/node'
+    ].filter(mod => {
+        return !fs.existsSync(path.join(cwd, 'node_modules', mod))
+    })
+    if (devDeps.length) {
+        await exec(`npm i -D ${devDeps.join(' ')}`)
+    }
 }
 
 program
-    .option('-c, --webpack <file>', 'webpack config file', options.webpack)
-    .option('-P, --pages <path>', 'pages path', options.pages)
-    .option('-a, --api <path>', 'api path', options.api)
-    .option('-p, --port <number>', 'listen port', options.port)
-    .action(runAsyncOrExit(async function(opts: typeof options) {
+.option('-c, --webpack <file>', 'webpack config file', options.webpack)
+.option('-P, --pages <path>', 'pages path', options.pages)
+.option('-a, --api <path>', 'api path', options.api)
+.option('-p, --port <number>', 'listen port', options.port)
+.action(runAsyncOrExit(async function(opts: typeof options) {
+    await prepareDirectory()
     const config = getWebpackConfig(opts.webpack, opts.pages, opts.api, 'development'),
         compiler = webpack(config),
         app = express()
@@ -169,19 +203,19 @@ program
 }))
 
 program
-    .command('remove')
-    .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
-    .action(runAsyncOrExit(async function({ namespace }: typeof options['deploy']) {
+.command('remove')
+.option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
+.action(runAsyncOrExit(async function({ namespace }: typeof options['deploy']) {
     const { name } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string }
     await cluster.remove({ name, namespace })
 }))
 
 program
-    .command('deploy')
-    .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
-    .option('-r, --registry <path>', 'registry host', options.deploy.registry)
-    .option('-t, --serviceType <type>', 'ClusterIP, NodePort or LoadBalancer', options.deploy.serviceType)
-    .action(runAsyncOrExit(async function({ namespace, registry, serviceType }: typeof options['deploy']) {
+.command('deploy')
+.option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
+.option('-r, --registry <path>', 'registry host', options.deploy.registry)
+.option('-t, --serviceType <type>', 'ClusterIP, NodePort or LoadBalancer', options.deploy.serviceType)
+.action(runAsyncOrExit(async function({ namespace, registry, serviceType }: typeof options['deploy']) {
     if (!options.deploy.npmConfig) {
         console.log(`INFO: getting registry from npm config list`)
         const [stdout] = await exec(`npm config list --json`),
@@ -207,13 +241,13 @@ program
 }))
 
 program
-    .command('build')
-    .action(runAsyncOrExit(async function () {
-    const config = getWebpackConfig(options.webpack, options.pages, options.api, 'production'),
+.command('build')
+.action(runAsyncOrExit(async function () {
+    const tsconfig = await getTsConfig(),
+        config = getWebpackConfig(options.webpack, options.pages, options.api, 'production', { tsconfig }),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
-    const tsconfig = await getTsConfig(),
-        program = ts.createProgram([require.resolve(options.api)], tsconfig),
+    const program = ts.createProgram([require.resolve(options.api)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
     for (const diagnostic of diags) {
@@ -231,8 +265,8 @@ program
 }))
 
 program
-    .command('start')
-    .action(runAsyncOrExit(async function() {
+.command('start')
+.action(runAsyncOrExit(async function() {
     const app = express()
     app.use(parser.json())
 
@@ -243,7 +277,7 @@ program
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
-    const { output = { } } = getWebpackConfig(options.webpack, options.pages, options.api, 'production')
+    const { output = { } } = getWebpackConfig(options.webpack, options.pages, options.api, 'production', { tsconfig })
     app.use(express.static(output.path || 'dist'))
     app.use((req, res) => html(req, res, `/${output.filename}`))
 
@@ -254,8 +288,8 @@ program
 }))
 
 program
-    .command('pip <evt> <url>')
-    .action(runAsyncOrExit(async function(evt: string, url: string) {
+.command('pip <evt> <url>')
+.action(runAsyncOrExit(async function(evt: string, url: string) {
     async function emit(data: any) {
         const method = 'POST',
             headers = { Accept: 'application/json', 'Content-Type': 'application/json' },

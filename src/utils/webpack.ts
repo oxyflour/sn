@@ -3,12 +3,15 @@ import path from 'path'
 import webpack from 'webpack'
 import { VueLoaderPlugin } from 'vue-loader'
 
+const root = path.join(__dirname, '..', '..')
+
 function updateEntry(entry: webpack.Configuration['entry'], mode = 'development') {
     const urls = [
         path.join(__dirname, '..', 'bootstrap'),
     ]
     if (mode === 'development') {
-        urls.push(path.join('webpack-hot-middleware', 'client') + '?path=/__webpack_hmr&reload=true',)
+        const client = require.resolve('webpack-hot-middleware/client', { paths: [root] })
+        urls.push(client + '?path=/__webpack_hmr&reload=true',)
     }
     if (!entry) {
         return urls
@@ -34,7 +37,8 @@ function updateEntry(entry: webpack.Configuration['entry'], mode = 'development'
 }
 
 export function getWebpackConfig(configPath: string, pagesPath: string, apiPath: string,
-        mode = 'development' as webpack.Configuration['mode'], options = { } as any) {
+        mode = 'development' as webpack.Configuration['mode'],
+        { baseUrl, tsconfig } = { } as { baseUrl?: string, tsconfig?: any }) {
     const config = (fs.existsSync(configPath) ? require(configPath) : { }) as webpack.Configuration
     config.mode = mode
     config.entry = updateEntry(config.entry, mode)
@@ -52,23 +56,26 @@ export function getWebpackConfig(configPath: string, pagesPath: string, apiPath:
                 test: /\.(js|mjs|jsx|ts|tsx)$/,
                 use: {
                     loader: require.resolve('./loader'),
-                    options: { apiPath, options },
+                    options: { apiPath, baseUrl },
                 }
             },
             {
                 test: /\.tsx?$/,
-                use: 'ts-loader',
+                use: {
+                    loader: require.resolve('ts-loader', { paths: [root] }),
+                    options: { compilerOptions: tsconfig }
+                },
                 exclude: /node_modules/,
             },
             {
                 test: /\.vue$/,
-                use: 'vue-loader',
+                use: require.resolve('vue-loader', { paths: [root] }),
             },
             {
                 test: /\.css$/,
                 use: [
-                    'vue-style-loader',
-                    'css-loader'
+                    require.resolve('vue-style-loader', { paths: [root] }),
+                    require.resolve('css-loader', { paths: [root] })
                 ]
             }
         ]
