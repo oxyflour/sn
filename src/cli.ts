@@ -5,6 +5,7 @@ import path from 'path'
 import http from 'http'
 import express, { Request, Response } from 'express'
 import parser from 'body-parser'
+import mkdirp from 'mkdirp'
 import program from 'commander'
 import fetch from 'node-fetch'
 import { exec, fork } from 'mz/child_process'
@@ -20,7 +21,8 @@ import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
 import Emitter from './utils/emitter'
 
-const { name, version } = require(path.join(__dirname, '..', 'package.json'))
+const cwd = process.cwd(),
+    { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
 
 function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
@@ -32,9 +34,9 @@ function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
 }
 
 const options = {
-    webpack: path.join(process.cwd(), 'webpack.config.js'),
-    pages: path.join(process.cwd(), 'src', 'pages'),
-    api: path.join(process.cwd(), 'src', 'lambda'),
+    webpack: path.join(cwd, 'webpack.config.js'),
+    pages: path.join(cwd, 'src', 'pages'),
+    api: path.join(cwd, 'src', 'lambda'),
     port: '8080',
     deploy: {
         namespace: 'default',
@@ -54,8 +56,8 @@ const options = {
         },
     },
 }
-if (fs.existsSync(path.join(process.cwd(), 'package.json'))) {
-    const { sn } = require(path.join(process.cwd(), 'package.json'))
+if (fs.existsSync(path.join(cwd, 'package.json'))) {
+    const { sn } = require(path.join(cwd, 'package.json'))
     Object.assign(options, sn)
 }
 
@@ -126,39 +128,47 @@ async function getTsConfig() {
     if (error || !json) {
         throw Error(`parse ${configPath} failed`)
     }
-    require('ts-node/register')
-    return ts.convertCompilerOptionsFromJson(json.compilerOptions, process.cwd()).options
+    return ts.convertCompilerOptionsFromJson(json.compilerOptions, cwd).options
+}
+
+function isMod(mod: string) {
+    try {
+        require.resolve(mod, { paths: [cwd] })
+        return true
+    } catch (err) {
+        if (err.code === 'MODULE_NOT_FOUND') {
+            return false
+        } else {
+            throw err
+        }
+    }
 }
 
 async function prepareDirectory() {
-    const cwd = process.cwd()
     if (!(await fs.exists(path.join(cwd, 'tsconfig.json')))) {
         await fs.copyFile(path.join(__dirname, '..', 'tsconfig.json'), path.join(cwd, 'tsconfig.json'))
+    }
+    if (!(await fs.exists(path.join(options.pages, 'index.tsx')))) {
+        await mkdirp(options.pages)
+        await fs.copyFile(path.join(__dirname, '..', 'src', 'pages', 'index.tsx'), path.join(options.pages, 'index.tsx'))
+    }
+    if (!(await fs.exists(path.join(options.api, 'index.ts')))) {
+        await mkdirp(options.api)
+        await fs.copyFile(path.join(__dirname, '..', 'src', 'lambda', 'index.ts'), path.join(options.api, 'index.ts'))
     }
     const deps = [
         'react',
         'vue',
-    ].filter(mod => {
-        try {
-            require.resolve(mod, { paths: [cwd] })
-            return false
-        } catch (err) {
-            if (err.code === 'MODULE_NOT_FOUND') {
-                return true
-            } else {
-                throw err
-            }
-        }
-    })
+        'react-router-dom',
+    ].filter(mod => !isMod(mod))
     if (deps.length) {
         await exec(`npm i -S ${deps.join(' ')}`)
     }
     const devDeps = [
         '@types/react',
-        '@types/node'
-    ].filter(mod => {
-        return !fs.existsSync(path.join(cwd, 'node_modules', mod))
-    })
+        '@types/node',
+        '@types/react-router-dom',
+    ].filter(mod => !fs.existsSync(path.join(cwd, 'node_modules', mod)))
     if (devDeps.length) {
         await exec(`npm i -D ${devDeps.join(' ')}`)
     }
@@ -171,6 +181,8 @@ program
 .option('-p, --port <number>', 'listen port', options.port)
 .action(runAsyncOrExit(async function(opts: typeof options) {
     await prepareDirectory()
+    require('ts-node/register')
+
     const config = getWebpackConfig(opts.webpack, opts.pages, opts.api, 'development'),
         compiler = webpack(config),
         app = express()
@@ -204,7 +216,7 @@ program
 .command('remove')
 .option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
 .action(runAsyncOrExit(async function({ namespace }: typeof options['deploy']) {
-    const { name } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string }
+    const { name } = require(path.join(cwd, 'package.json')) as { name: string, version: string }
     await cluster.remove({ name, namespace })
 }))
 
@@ -227,7 +239,7 @@ program
     }
 
     console.log(`INFO: building in namespace ${namespace}...`)
-    const { name, version } = require(path.join(process.cwd(), 'package.json')) as { name: string, version: string },
+    const { name, version } = require(path.join(cwd, 'package.json')) as { name: string, version: string },
         image = `${registry}/${name.replace(/@/g, '')}:${version}`
     await kaniko.build({ ...options.deploy, namespace, image })
 

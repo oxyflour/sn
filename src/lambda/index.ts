@@ -1,8 +1,6 @@
-import it from './test'
-
 export default {
     async hello() {
-        return 'world ' + it()
+        return 'world'
     },
     async *stream() {
         for (let i = 0; i < 10; i ++) {
