@@ -6,7 +6,7 @@ export default function LambdaEntryLoader(this: any, source: string) {
     const { apiPath, options = { } } = getOptions(this)
     if (isInside(this.resourcePath, apiPath + '')) {
         return `
-        import wrapper from '${path.join(__dirname, '..', 'wrapper', 'web')}'
+        import wrapper from ${JSON.stringify(path.join(__dirname, '..', 'wrapper', 'web'))}'
         export default wrapper(${JSON.stringify(options)})
         `
     } else {
