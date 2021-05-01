@@ -1,8 +1,8 @@
-import { EventEmitter } from 'events'
 import { Request, Response } from 'express'
 import { ApiDefinition } from '../utils/common'
+import Emitter from '../utils/emitter'
 
-export default async <T extends ApiDefinition>(req: Request, res: Response, api: T, emitter: EventEmitter) => {
+export default async <T extends ApiDefinition>(req: Request, res: Response, api: T, emitter: Emitter) => {
     const { entry, args, evt } = req.body as { entry: string[], args: any[], evt: string },
         obj = entry.reduce((api, key) => (api as any)[key], api) as any
     if (evt) {

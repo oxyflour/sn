@@ -18,7 +18,6 @@ import rpc from './wrapper/express'
 import { getHotMod } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
-import Store from './utils/store'
 import Emitter from './utils/emitter'
 
 const { name, version } = require(path.join(__dirname, '..', 'package.json'))
@@ -96,11 +95,10 @@ function html(req: Request, res: Response, script: string) {
 </html>`)
 }
 
-const store = new Store(options.deploy.s3Config)
 async function pip(req: Request, res: Response, emitter: Emitter) {
     const { evt, url, name, namespace, image, entry, args, ack, err, value, done } = req.body
     if (url) {
-        await store.set(`pip/${evt}`, { entry, args })
+        await emitter.set(`pip/${evt}`, { entry, args })
         if (image) {
             const pod = `exe-${evt}`,
                 command = ['npx', 'sn', 'pip', evt, url]
@@ -111,8 +109,8 @@ async function pip(req: Request, res: Response, emitter: Emitter) {
         res.send(await new Promise(resolve => emitter.once(`ack-${evt}`, resolve)))
     } else if (ack) {
         emitter.emit(`ack-${evt}`, ack)
-        res.send(await store.get(`pip/${evt}`))
-        await store.del(`pip/${evt}`)
+        res.send(await emitter.get(`pip/${evt}`))
+        await emitter.del(`pip/${evt}`)
     } else {
         emitter.emit(evt, { err, value, done })
         res.send({ })
