@@ -100,7 +100,6 @@ function html(req: Request, res: Response, script: string) {
 async function pip(req: Request, res: Response, emitter: Emitter) {
     const { evt, url, name, namespace, image, entry, args, ack, err, value, done } = req.body
     if (url) {
-        await emitter.set(`pip/${evt}`, { entry, args })
         if (image) {
             const pod = `exe-${evt}`,
                 command = ['npx', 'sn', 'pip', evt, url]
@@ -108,11 +107,13 @@ async function pip(req: Request, res: Response, emitter: Emitter) {
         } else {
             fork(__filename, ['pip', evt, url])
         }
-        res.send(await new Promise(resolve => emitter.once(`ack-${evt}`, resolve)))
+        const ack = await emitter.next(`ack-${evt}`)
+        emitter.emit(`req-${evt}`, { entry, args })
+        res.send(ack)
     } else if (ack) {
+        const defer = emitter.next(`req-${evt}`)
         emitter.emit(`ack-${evt}`, ack)
-        res.send(await emitter.get(`pip/${evt}`))
-        await emitter.del(`pip/${evt}`)
+        res.send(await defer)
     } else {
         emitter.emit(evt, { err, value, done })
         res.send({ })
@@ -183,7 +184,8 @@ program
     await prepareDirectory()
     require('ts-node/register')
 
-    const config = getWebpackConfig(opts.webpack, opts.pages, opts.api, 'development'),
+    const tsconfig = getTsConfig(),
+        config = getWebpackConfig(opts.webpack, opts.pages, opts.api, 'development', { tsconfig }),
         compiler = webpack(config),
         app = express()
     app.use(parser.json())
@@ -308,7 +310,9 @@ program
     }
     try {
         const tsconfig = await getTsConfig(),
-            mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default,
+            out = tsconfig.outDir && isMod(path.join(tsconfig.outDir || '', 'lambda')) ? tsconfig.outDir || '' :
+                  isMod(path.join(cwd, 'dist', 'lambda')) ? 'dist' : (require('ts-node/register'), 'src'),
+            mod = require(path.join(cwd, out, 'lambda')).default,
             { entry, args } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[] },
             obj = entry.reduce((api, key) => (api as any)[key], mod) as any
         for await (const value of obj(...args)) {
