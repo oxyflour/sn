@@ -9,6 +9,7 @@ import mkdirp from 'mkdirp'
 import program from 'commander'
 import fetch from 'node-fetch'
 import { exec, fork } from 'mz/child_process'
+import { Server } from 'socket.io'
 
 import ts from 'typescript'
 import webpack from 'webpack'
@@ -24,6 +25,7 @@ import Emitter from './utils/emitter'
 const cwd = process.cwd(),
     { name, version } = require(path.join(__dirname, '..', 'package.json'))
 program.version(version).name(name)
+require('ts-node/register')
 
 function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
     return (...args: any[]) => fn(...args)
@@ -34,9 +36,10 @@ function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
 }
 
 const options = {
-    webpack: path.join(cwd, 'webpack.config.js'),
+    webpack: undefined as string | undefined,
     pages: path.join(cwd, 'src', 'pages'),
-    api: path.join(cwd, 'src', 'lambda'),
+    lambda: path.join(cwd, 'src', 'lambda'),
+    include: { } as { [key: string]: string },
     port: '8080',
     deploy: {
         namespace: 'default',
@@ -59,6 +62,26 @@ const options = {
 if (fs.existsSync(path.join(cwd, 'package.json'))) {
     const { sn } = require(path.join(cwd, 'package.json'))
     Object.assign(options, sn)
+}
+
+function getModules({ pages, lambda, include }: typeof options) {
+    const modules = { } as { [key: string]: { pages: string, lambda: string, mod: any } }
+    modules[''] = { pages, lambda, mod: require(lambda).default }
+    for (const [prefix, mod] of Object.entries(include)) {
+        let dir = path.resolve(mod)
+        try {
+            const pkg = require.resolve(path.join(mod, 'package.json'), { paths: [cwd] })
+            dir = path.dirname(pkg)
+        } catch (err) {
+            console.log(err)
+            // ignore
+        }
+        const { sn = { } } = require(path.join(dir, 'package.json')),
+            pages = path.join(dir, sn.pages || 'src/pages'),
+            lambda = path.join(dir, sn.lambda || 'src/lambda')
+        modules[prefix] = { pages, lambda, mod: require(lambda).default }
+    }
+    return modules
 }
 
 async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
@@ -98,7 +121,7 @@ function html(req: Request, res: Response, script: string) {
 }
 
 async function pip(req: Request, res: Response, emitter: Emitter) {
-    const { evt, url, name, namespace, image, entry, args, ack, err, value, done } = req.body
+    const { evt, url, name, namespace, image, entry, args, prefix, ack, err, value, done } = req.body
     if (url) {
         if (image) {
             const pod = `exe-${evt}`,
@@ -108,7 +131,7 @@ async function pip(req: Request, res: Response, emitter: Emitter) {
             fork(__filename, ['pip', evt, url])
         }
         const ack = await emitter.next(`ack-${evt}`)
-        emitter.emit(`req-${evt}`, { entry, args })
+        emitter.emit(`req-${evt}`, { entry, args, prefix })
         res.send(ack)
     } else if (ack) {
         const defer = emitter.next(`req-${evt}`)
@@ -153,9 +176,9 @@ async function prepareDirectory() {
         await mkdirp(options.pages)
         await fs.copyFile(path.join(__dirname, '..', 'src', 'pages', 'index.tsx'), path.join(options.pages, 'index.tsx'))
     }
-    if (!(await fs.exists(path.join(options.api, 'index.ts')))) {
-        await mkdirp(options.api)
-        await fs.copyFile(path.join(__dirname, '..', 'src', 'lambda', 'index.ts'), path.join(options.api, 'index.ts'))
+    if (!(await fs.exists(path.join(options.lambda, 'index.ts')))) {
+        await mkdirp(options.lambda)
+        await fs.copyFile(path.join(__dirname, '..', 'src', 'lambda', 'index.ts'), path.join(options.lambda, 'index.ts'))
     }
     const deps = [
         'react',
@@ -175,29 +198,26 @@ async function prepareDirectory() {
     }
 }
 
-program
-.option('-c, --webpack <file>', 'webpack config file', options.webpack)
-.option('-P, --pages <path>', 'pages path', options.pages)
-.option('-a, --api <path>', 'api path', options.api)
-.option('-p, --port <number>', 'listen port', options.port)
-.action(runAsyncOrExit(async function(opts: typeof options) {
+program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
-    require('ts-node/register')
-
     const tsconfig = getTsConfig(),
-        config = getWebpackConfig(opts.webpack, opts.pages, opts.api, 'development', { tsconfig }),
+        modules = getModules(options),
+        config = getWebpackConfig(modules, tsconfig, 'development', options.webpack),
         compiler = webpack(config),
         app = express()
     app.use(parser.json())
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const hot = await fs.exists(opts.api) ? getHotMod(opts.api) : { mod: { }, evt: new Emitter() },
-        emitter = new Emitter()
-    app.post('/rpc/*', (req, res) => rpc(req, res, hot.mod, emitter))
+    const emitter = new Emitter()
+    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter))
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
+    const hot = getHotMod(options.lambda)
+    Object.defineProperty(modules[''], 'mod', {
+        get() { return hot.mod }
+    })
     hot.evt.on('change', file => {
         console.log(`[TS] file ${file} changed`)
     })
@@ -208,27 +228,26 @@ program
     const { output = { } } = config
     app.use((req, res) => html(req, res, `${output.publicPath}${output.filename}`))
 
-    const server = http.createServer(app)
-    server.listen(parseInt(opts.port), () => {
+    const server = http.createServer(app),
+        io = new Server(server)
+    io.on('connect', ws => {
+        ws.on('join', evt => ws.join(evt))
+        ws.on('leave', evt => ws.leave(evt))
+        ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
+    })
+    server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
 }))
 
-program
-.command('remove')
-.option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
-.action(runAsyncOrExit(async function({ namespace }: typeof options['deploy']) {
+program.command('remove').action(runAsyncOrExit(async function() {
     const { name } = require(path.join(cwd, 'package.json')) as { name: string, version: string }
-    await cluster.remove({ name, namespace })
+    await cluster.remove({ name, namespace: options.deploy.namespace })
 }))
 
-program
-.command('deploy')
-.option('-n, --namespace <namespace>', 'namespace', options.deploy.namespace)
-.option('-r, --registry <path>', 'registry host', options.deploy.registry)
-.option('-t, --serviceType <type>', 'ClusterIP, NodePort or LoadBalancer', options.deploy.serviceType)
-.action(runAsyncOrExit(async function({ namespace, registry, serviceType }: typeof options['deploy']) {
-    if (!options.deploy.npmConfig) {
+program.command('deploy').action(runAsyncOrExit(async function() {
+    const { npmConfig, namespace, registry, serviceType } = options.deploy
+    if (!npmConfig) {
         console.log(`INFO: getting registry from npm config list`)
         const [stdout] = await exec(`npm config list --json`),
             npmrc = JSON.parse(stdout),
@@ -252,14 +271,13 @@ program
     console.log(`INFO: deployed image ${image} as ${app} in namespace ${namespace}`)
 }))
 
-program
-.command('build')
-.action(runAsyncOrExit(async function () {
+program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
-        config = getWebpackConfig(options.webpack, options.pages, options.api, 'production', { tsconfig }),
+        modules = getModules(options),
+        config = getWebpackConfig(modules, tsconfig, 'production', options.webpack),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
-    const program = ts.createProgram([require.resolve(options.api)], tsconfig),
+    const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
     for (const diagnostic of diags) {
@@ -276,20 +294,18 @@ program
     }
 }))
 
-program
-.command('start')
-.action(runAsyncOrExit(async function() {
+program.command('start').action(runAsyncOrExit(async function() {
     const app = express()
     app.use(parser.json())
 
     const tsconfig = await getTsConfig(),
-        mod = require(path.join(tsconfig.outDir || 'dist', 'lambda')).default,
+        modules = getModules(options),
         emitter = new Emitter()
-    app.post('/rpc/*', (req, res) => rpc(req, res, mod, emitter))
+    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter))
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
-    const { output = { } } = getWebpackConfig(options.webpack, options.pages, options.api, 'production', { tsconfig })
+    const { output = { } } = getWebpackConfig(modules, tsconfig, 'production', options.webpack)
     app.use(express.static(output.path || 'dist'))
     app.use((req, res) => html(req, res, `/${output.filename}`))
 
@@ -299,9 +315,7 @@ program
     })
 }))
 
-program
-.command('pip <evt> <url>')
-.action(runAsyncOrExit(async function(evt: string, url: string) {
+program.command('pip <evt> <url>').action(runAsyncOrExit(async function(evt: string, url: string) {
     async function emit(data: any) {
         const method = 'POST',
             headers = { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -309,13 +323,10 @@ program
         return await req.json()
     }
     try {
-        const tsconfig = await getTsConfig(),
-            out = tsconfig.outDir && isMod(path.join(tsconfig.outDir || '', 'lambda')) ? tsconfig.outDir || '' :
-                  isMod(path.join(cwd, 'dist', 'lambda')) ? 'dist' : (require('ts-node/register'), 'src'),
-            mod = require(path.join(cwd, out, 'lambda')).default,
-            { entry, args } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[] },
-            obj = entry.reduce((api, key) => (api as any)[key], mod) as any
-        for await (const value of obj(...args)) {
+        const modules = getModules(options),
+            { entry, args, prefix } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[], prefix: string },
+            [func, obj] = entry.reduce(([api], key) => [(api as any)[key], api], [modules[prefix], null]) as any
+        for await (const value of func.apply(obj, args)) {
             await emit({ value })
         }
     } catch (err) {

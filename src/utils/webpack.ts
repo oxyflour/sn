@@ -1,7 +1,7 @@
-import { fs } from 'mz'
 import path from 'path'
 import webpack from 'webpack'
 import { VueLoaderPlugin } from 'vue-loader'
+import WebpackInjectPlugin, { ENTRY_ORDER } from 'webpack-inject-plugin'
 
 const root = path.join(__dirname, '..', '..')
 
@@ -36,16 +36,34 @@ function updateEntry(entry: webpack.Configuration['entry'], mode = 'development'
     }
 }
 
-export function getWebpackConfig(configPath: string, pagesPath: string, apiPath: string,
-        mode = 'development' as webpack.Configuration['mode'],
-        { baseUrl, tsconfig } = { } as { baseUrl?: string, tsconfig?: any }) {
-    const config = (fs.existsSync(configPath) ? require(configPath) : { }) as webpack.Configuration
+function injectIncludes(modules: { [key: string]: { pages: string, lambda: string } }) {
+    return `
+    const inc = window.SN_PAGE_CONTEXT = { }
+    ` + Object.entries(modules).map(([key, { pages, lambda }]) => {
+    return `
+    inc[${JSON.stringify('/' + key)}] = {
+        context: require.context(${JSON.stringify(pages)}),
+        lambda: ${JSON.stringify(path.join(lambda))}
+    }
+    `}).join('\n')
+}
+
+export function getWebpackConfig(
+    modules: { [prefi: string]: { pages: string, lambda: string } },
+    tsconfig: any,
+    mode?: webpack.Configuration['mode'],
+    webpackConfig?: string) {
+    const config = webpackConfig ? require(webpackConfig) : { } as webpack.Configuration
     config.mode = mode
     config.entry = updateEntry(config.entry, mode)
     config.plugins = (config.plugins || []).concat([
-        new webpack.EnvironmentPlugin({ PAGES_PATH: pagesPath }),
         new webpack.HotModuleReplacementPlugin(),
+        new webpack.ContextExclusionPlugin(/\.map$/),
+        new webpack.ContextExclusionPlugin(/\.d\.ts$/),
         new VueLoaderPlugin() as any,
+        new WebpackInjectPlugin(() => injectIncludes(modules), {
+            entryOrder: ENTRY_ORDER.First
+        })
     ])
     if (!config.module) {
         config.module = { }
@@ -56,7 +74,7 @@ export function getWebpackConfig(configPath: string, pagesPath: string, apiPath:
                 test: /\.(js|mjs|jsx|ts|tsx)$/,
                 use: {
                     loader: require.resolve('./loader'),
-                    options: { apiPath, baseUrl },
+                    options: { modules },
                 }
             },
             {

@@ -18,14 +18,14 @@ if (!root) {
     })
 }
 
-function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: { tsx: boolean, vue: boolean }) {
+function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: { [key: string]: boolean }) {
     return function Lazy(props: any) {
         const [elem, setElem] = useState(loading),
             history = useHistory()
         async function init() {
             try {
                 const comp = await fetch()
-                opts.tsx ?
+                opts.tsx || opts.js ?
                     setElem(React.createElement(comp.default, props)) :
                 opts.vue ?
                     setElem(<VueWrapper route={ props } history={ history } component={ comp.default } />) :
@@ -40,9 +40,10 @@ function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: 
     }
 }
 
-const context = (require as any).context(process.env.PAGES_PATH || '.', true),
-    files = context.keys() as string[],
-    routes = files
+const routes = [] as { file: string, path: string, comp: any }[]
+for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
+    const files = context.keys() as string[],
+        items = files
         .filter(file => {
             return !file.endsWith('.tsx') && !file.endsWith('.vue') && !(file.length > 2 && file.endsWith('/'))
         })
@@ -50,14 +51,17 @@ const context = (require as any).context(process.env.PAGES_PATH || '.', true),
             file,
             tsx: files.includes(file + '.tsx') || files.includes(file + 'index.tsx'),
             vue: files.includes(file + '.vue') || files.includes(file + 'index.vue'),
+            js: files.includes(file + '.js') || files.includes(file + 'index.js'),
         }))
-        .map(({ file, tsx, vue }) => ({
-            file,
-            comp: lazy(() => context(file), <div>...</div>, <div>500</div>, { tsx, vue }),
-            path: file.slice(1).replace(/\[([^\]]+)]/, ':$1'),
+        .map(({ file, tsx, vue, js }) => ({
+            file: prefix + file.slice(2),
+            comp: lazy(() => context(file), <div>...</div>, <div>500</div>, { tsx, vue, js }),
+            path: prefix + file.slice(2).replace(/\[([^\]]+)]/, ':$1'),
         })).sort((a, b) => {
             return b.path.split('/').length - a.path.split('/').length
         })
+    routes.push(...items)
+}
 
 ReactDOM.render(<Router>
 <Switch>
