@@ -1,14 +1,15 @@
 import { hookFunc } from '../utils/common'
 
-export default <T extends { }>({ url = '', prefix = '' }: {
+export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
     url?: string
     prefix?: string
+    opts?: any
 }) => hookFunc({ } as T, (...stack) => {
     const entry = stack.map(item => item.propKey),
         part = entry.slice().reverse().join('/')
     return (...args: any[]) => {
         async function post(url: string, ext: any) {
-            const body = JSON.stringify({ entry, args, prefix, ...ext }),
+            const body = JSON.stringify({ entry, args, prefix, ...opts, ...ext }),
                 method = 'POST',
                 headers = { Accept: 'application/json', 'Content-Type': 'application/json' },
                 req = await fetch(url, { headers, method, body })

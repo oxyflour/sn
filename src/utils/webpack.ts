@@ -52,8 +52,10 @@ export function getWebpackConfig(
     modules: { [prefi: string]: { pages: string, lambda: string } },
     tsconfig: any,
     mode?: webpack.Configuration['mode'],
-    webpackConfig?: string) {
-    const config = (webpackConfig ? require(webpackConfig) : { }) as webpack.Configuration
+    webpackConfig?: string,
+    wrapperPath?: string) {
+    const config = (webpackConfig ? require(webpackConfig) : { }) as webpack.Configuration,
+        wrapper = wrapperPath && require.resolve(wrapperPath, { paths: [process.cwd()] })
     config.mode = mode
     config.entry = updateEntry(config.entry, mode)
     config.plugins = (config.plugins || []).concat([
@@ -73,7 +75,7 @@ export function getWebpackConfig(
             test: /\.(js|mjs|jsx|ts|tsx)$/,
             use: {
                 loader: require.resolve('./loader'),
-                options: { modules },
+                options: { modules, wrapper },
             }
         },
         {

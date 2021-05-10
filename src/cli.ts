@@ -39,6 +39,7 @@ const options = {
     webpack: fs.existsSync(path.join(cwd, 'webpack.config.js')) ? path.join(cwd, 'webpack.config.js') : undefined,
     pages: path.join(cwd, 'src', 'pages'),
     lambda: path.join(cwd, 'src', 'lambda'),
+    wrapper: '',
     include: { } as { [key: string]: string },
     middlewares: [ ] as string[],
     port: '8080',
@@ -183,7 +184,7 @@ program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
     const tsconfig = getTsConfig(),
         modules = getModules(options, [cwd]),
-        config = getWebpackConfig(modules, tsconfig, 'development', options.webpack),
+        config = getWebpackConfig(modules, tsconfig, 'development', options.webpack, options.wrapper),
         compiler = webpack(config),
         app = express()
     app.use(parser.json())
@@ -256,7 +257,7 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
         modules = getModules(options, [cwd]),
-        config = getWebpackConfig(modules, tsconfig, 'production', options.webpack),
+        config = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
     const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
@@ -288,7 +289,7 @@ program.command('start').action(runAsyncOrExit(async function() {
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
-    const { output = { } } = getWebpackConfig(modules, tsconfig, 'production', options.webpack)
+    const { output = { } } = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper)
     app.use(express.static(output.path || 'dist'))
     app.use((req, res) => html(req, res, `/${output.filename}`))
 
