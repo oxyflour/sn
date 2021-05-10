@@ -17,7 +17,7 @@ import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
 
 import rpc from './wrapper/express'
-import { getHotMod } from './utils/module'
+import { getHotMod, getMiddlewares, getModules } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
 import Emitter from './utils/emitter'
@@ -63,23 +63,6 @@ const options = {
 if (fs.existsSync(path.join(cwd, 'package.json'))) {
     const { sn } = require(path.join(cwd, 'package.json'))
     Object.assign(options, sn)
-}
-
-function getModules({ pages, lambda, include }: typeof options) {
-    const modules = { } as { [key: string]: { pages: string, lambda: string, mod: any } }
-    modules[''] = { pages, lambda, mod: require(lambda).default }
-    for (const [prefix, mod] of Object.entries(include)) {
-        const pkg = require.resolve(path.join(mod, 'package.json'), { paths: [cwd] }),
-            { sn = { } } = require(pkg),
-            pages = path.join(pkg, '..', sn.pages || 'src/pages'),
-            lambda = path.join(pkg, '..', sn.lambda || 'src/lambda')
-        modules[prefix] = { pages, lambda, mod: require(lambda).default }
-    }
-    return modules
-}
-
-function getMiddlewares() {
-    return options.middlewares.map(item => require(require.resolve(item, { paths: [cwd] })).default)
 }
 
 async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
@@ -199,7 +182,7 @@ async function prepareDirectory() {
 program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
     const tsconfig = getTsConfig(),
-        modules = getModules(options),
+        modules = getModules(options, [cwd]),
         config = getWebpackConfig(modules, tsconfig, 'development', options.webpack),
         compiler = webpack(config),
         app = express()
@@ -208,7 +191,7 @@ program.action(runAsyncOrExit(async function() {
     app.use(WebpackHotMiddleware(compiler))
 
     const emitter = new Emitter(),
-        middlewares = getMiddlewares()
+        middlewares = getMiddlewares(options.middlewares, [cwd])
     app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter, middlewares))
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
@@ -272,7 +255,7 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 
 program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
-        modules = getModules(options),
+        modules = getModules(options, [cwd]),
         config = getWebpackConfig(modules, tsconfig, 'production', options.webpack),
         compiler = webpack(config)
     await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
@@ -298,9 +281,9 @@ program.command('start').action(runAsyncOrExit(async function() {
     app.use(parser.json())
 
     const tsconfig = await getTsConfig(),
-        modules = getModules(options),
+        modules = getModules(options, [cwd]),
         emitter = new Emitter(),
-        middlewares = getMiddlewares()
+        middlewares = getMiddlewares(options.middlewares, [cwd])
     app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter, middlewares))
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
@@ -323,7 +306,7 @@ program.command('pip <evt> <url>').action(runAsyncOrExit(async function(evt: str
         return await req.json()
     }
     try {
-        const modules = getModules(options),
+        const modules = getModules(options, [cwd]),
             { entry, args, prefix } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[], prefix: string },
             [func, obj] = entry.reduce(([api], key) => [(api as any)[key], api], [modules[prefix], null]) as any
         for await (const value of func.apply(obj, args)) {

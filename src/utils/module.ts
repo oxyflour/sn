@@ -1,4 +1,5 @@
 import fs from 'fs'
+import path from 'path'
 import { EventEmitter } from 'events'
 import { debounce } from './common'
 
@@ -37,4 +38,21 @@ export function getHotMod(path: string) {
     }, 100)
     walkMod(file, ({ filename }) => watch(filename))
     return ret
+}
+
+export function getModules({ pages, lambda, include }: { pages: string, lambda: string, include: { [key: string]: string } }, paths: string[]) {
+    const modules = { } as { [key: string]: { pages: string, lambda: string, mod: any } }
+    modules[''] = { pages, lambda, mod: require(lambda).default }
+    for (const [prefix, mod] of Object.entries(include)) {
+        const pkg = require.resolve(path.join(mod, 'package.json'), { paths }),
+            { sn = { } } = require(pkg),
+            pages = path.join(pkg, '..', sn.pages || 'src/pages'),
+            lambda = path.join(pkg, '..', sn.lambda || 'src/lambda')
+        modules[prefix] = { pages, lambda, mod: require(lambda).default }
+    }
+    return modules
+}
+
+export function getMiddlewares(middlewares: string[], paths: string[]) {
+    return middlewares.map(item => require(require.resolve(item, { paths })).default)
 }
