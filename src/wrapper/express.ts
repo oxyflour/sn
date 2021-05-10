@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import Emitter from '../utils/emitter'
+import * as getArgumentNames from 'function-arguments'
 
 export type Context = { func: Function, obj: any, args: any[], req: Request }
 export type Middleware = (ctx: Context, next: Function) => any
@@ -18,7 +19,13 @@ export default async (req: Request, res: Response,
     const { entry, args, evt, prefix } = req.body as { entry: string[], args: any[], evt: string, prefix: string },
         mod = modules[prefix]?.mod,
         [func, obj] = entry.reduce(([api], key) => [api && (api as any)[key], api], [mod, null]) as any,
-        ctx = { func, obj, args, req }
+        ctx = { func, obj, args, req },
+        argNames = func && (func.__argnames || (func.__argnames = getArgumentNames(func))) || []
+    for (const [idx, name] of argNames) {
+        if (name === '$ctx') {
+            ctx.args[idx] = ctx
+        }
+    }
     if (evt) {
         try {
             for await (const value of await callWithMiddlewares(ctx, middlewares, false)) {
