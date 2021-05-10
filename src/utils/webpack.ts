@@ -45,7 +45,12 @@ function injectIncludes(modules: { [key: string]: { pages: string, lambda: strin
         context: require.context(${JSON.stringify(pages)}),
         lambda: ${JSON.stringify(path.join(lambda))}
     }
-    `}).join('\n')
+    `}).join('\n') + `
+    const mod = module
+    if (mod.hot) {
+        mod.hot.accept()
+    }
+    `
 }
 
 export function getWebpackConfig(
