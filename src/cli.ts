@@ -36,10 +36,11 @@ function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
 }
 
 const options = {
-    webpack: undefined as string | undefined,
+    webpack: fs.existsSync(path.join(cwd, 'webpack.config.js')) ? path.join(cwd, 'webpack.config.js') : undefined,
     pages: path.join(cwd, 'src', 'pages'),
     lambda: path.join(cwd, 'src', 'lambda'),
     include: { } as { [key: string]: string },
+    middlewares: [ ] as string[],
     port: '8080',
     deploy: {
         namespace: 'default',
@@ -68,20 +69,17 @@ function getModules({ pages, lambda, include }: typeof options) {
     const modules = { } as { [key: string]: { pages: string, lambda: string, mod: any } }
     modules[''] = { pages, lambda, mod: require(lambda).default }
     for (const [prefix, mod] of Object.entries(include)) {
-        let dir = path.resolve(mod)
-        try {
-            const pkg = require.resolve(path.join(mod, 'package.json'), { paths: [cwd] })
-            dir = path.dirname(pkg)
-        } catch (err) {
-            console.log(err)
-            // ignore
-        }
-        const { sn = { } } = require(path.join(dir, 'package.json')),
-            pages = path.join(dir, sn.pages || 'src/pages'),
-            lambda = path.join(dir, sn.lambda || 'src/lambda')
+        const pkg = require.resolve(path.join(mod, 'package.json'), { paths: [cwd] }),
+            { sn = { } } = require(pkg),
+            pages = path.join(pkg, '..', sn.pages || 'src/pages'),
+            lambda = path.join(pkg, '..', sn.lambda || 'src/lambda')
         modules[prefix] = { pages, lambda, mod: require(lambda).default }
     }
     return modules
+}
+
+function getMiddlewares() {
+    return options.middlewares.map(item => require(require.resolve(item, { paths: [cwd] })).default)
 }
 
 async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
@@ -209,8 +207,9 @@ program.action(runAsyncOrExit(async function() {
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const emitter = new Emitter()
-    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter))
+    const emitter = new Emitter(),
+        middlewares = getMiddlewares()
+    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter, middlewares))
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
@@ -300,8 +299,9 @@ program.command('start').action(runAsyncOrExit(async function() {
 
     const tsconfig = await getTsConfig(),
         modules = getModules(options),
-        emitter = new Emitter()
-    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter))
+        emitter = new Emitter(),
+        middlewares = getMiddlewares()
+    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter, middlewares))
     app.post('/pip/*', (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 

@@ -53,7 +53,7 @@ export function getWebpackConfig(
     tsconfig: any,
     mode?: webpack.Configuration['mode'],
     webpackConfig?: string) {
-    const config = webpackConfig ? require(webpackConfig) : { } as webpack.Configuration
+    const config = (webpackConfig ? require(webpackConfig) : { }) as webpack.Configuration
     config.mode = mode
     config.entry = updateEntry(config.entry, mode)
     config.plugins = (config.plugins || []).concat([
@@ -68,36 +68,34 @@ export function getWebpackConfig(
     if (!config.module) {
         config.module = { }
     }
-    if (!config.module.rules) {
-        config.module.rules = [
-            {
-                test: /\.(js|mjs|jsx|ts|tsx)$/,
-                use: {
-                    loader: require.resolve('./loader'),
-                    options: { modules },
-                }
-            },
-            {
-                test: /\.tsx?$/,
-                use: {
-                    loader: require.resolve('ts-loader', { paths: [root] }),
-                    options: { compilerOptions: tsconfig }
-                },
-                exclude: /node_modules/,
-            },
-            {
-                test: /\.vue$/,
-                use: require.resolve('vue-loader', { paths: [root] }),
-            },
-            {
-                test: /\.css$/,
-                use: [
-                    require.resolve('vue-style-loader', { paths: [root] }),
-                    require.resolve('css-loader', { paths: [root] })
-                ]
+    config.module.rules = (config.module.rules || []).concat([
+        {
+            test: /\.(js|mjs|jsx|ts|tsx)$/,
+            use: {
+                loader: require.resolve('./loader'),
+                options: { modules },
             }
-        ]
-    }
+        },
+        {
+            test: /\.tsx?$/,
+            use: {
+                loader: require.resolve('ts-loader', { paths: [root] }),
+                options: { compilerOptions: tsconfig }
+            },
+            exclude: /node_modules/,
+        },
+        {
+            test: /\.vue$/,
+            use: require.resolve('vue-loader', { paths: [root] }),
+        },
+        {
+            test: /\.css$/,
+            use: [
+                require.resolve('vue-style-loader', { paths: [root] }),
+                require.resolve('css-loader', { paths: [root] })
+            ]
+        }
+    ])
     if (!config.resolve) {
         config.resolve =  {
             extensions: [ '.tsx', '.ts', '.js', '.vue' ],

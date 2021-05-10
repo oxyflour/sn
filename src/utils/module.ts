@@ -8,9 +8,9 @@ function walkMod(filename: string, func: (mod: NodeModule) => void,
     if (mod && !visited[filename]) {
         visited[filename] = true
         func(mod)
-    }
-    for (const { filename } of mod ? mod.children : []) {
-        walkMod(filename, func, visited)
+        for (const { filename } of mod ? mod.children : []) {
+            walkMod(filename, func, visited)
+        }
     }
 }
 
