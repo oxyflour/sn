@@ -44,9 +44,7 @@ const routes = [] as { file: string, path: string, comp: any }[]
 for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
     const files = context.keys() as string[],
         items = files
-        .filter(file => {
-            return !file.endsWith('.tsx') && !file.endsWith('.vue') && !(file.length > 2 && file.endsWith('/'))
-        })
+        .filter(file => !(file.length > 2 && file.endsWith('/')))
         .map(file => ({
             file,
             tsx: files.includes(file + '.tsx') || files.includes(file + 'index.tsx'),

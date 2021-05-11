@@ -4,11 +4,12 @@ import fs from 'mz/fs'
 import path from 'path'
 import http from 'http'
 import express, { Request, Response } from 'express'
-import parser from 'body-parser'
 import mkdirp from 'mkdirp'
 import program from 'commander'
 import fetch from 'node-fetch'
+import multer from 'multer'
 import { exec, fork } from 'mz/child_process'
+import { json } from 'body-parser'
 import { Server } from 'socket.io'
 
 import ts from 'typescript'
@@ -187,14 +188,15 @@ program.action(runAsyncOrExit(async function() {
         config = getWebpackConfig(modules, tsconfig, 'development', options.webpack, options.wrapper),
         compiler = webpack(config),
         app = express()
-    app.use(parser.json())
+    app.use(json())
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
     const emitter = new Emitter(),
-        middlewares = getMiddlewares(options.middlewares, [cwd])
-    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter, middlewares))
-    app.post('/pip/*', (req, res) => pip(req, res, emitter))
+        middlewares = getMiddlewares(options.middlewares, [cwd]),
+        upload = multer({ limits: { fileSize: 1024 ** 3 } })
+    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, modules, emitter, middlewares))
+    app.post('/pip/*', upload.any(), (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
     const hot = getHotMod(options.lambda)
@@ -279,14 +281,15 @@ program.command('build').action(runAsyncOrExit(async function () {
 
 program.command('start').action(runAsyncOrExit(async function() {
     const app = express()
-    app.use(parser.json())
+    app.use(json())
 
     const tsconfig = await getTsConfig(),
         modules = getModules(options, [cwd]),
         emitter = new Emitter(),
-        middlewares = getMiddlewares(options.middlewares, [cwd])
-    app.post('/rpc/*', (req, res) => rpc(req, res, modules, emitter, middlewares))
-    app.post('/pip/*', (req, res) => pip(req, res, emitter))
+        middlewares = getMiddlewares(options.middlewares, [cwd]),
+        upload = multer({ limits: { fileSize: 1024 ** 3 } })
+    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, modules, emitter, middlewares))
+    app.post('/pip/*', upload.any(), (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
     const { output = { } } = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper)

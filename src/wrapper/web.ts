@@ -1,4 +1,5 @@
 import { hookFunc } from '../utils/common'
+import form from './form'
 
 export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
     url?: string
@@ -9,10 +10,14 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
         part = entry.slice().reverse().join('/')
     return (...args: any[]) => {
         async function post(url: string, ext: any) {
-            const body = JSON.stringify({ entry, args, prefix, ...opts, ...ext }),
-                method = 'POST',
-                headers = { Accept: 'application/json', 'Content-Type': 'application/json' },
-                req = await fetch(url, { headers, method, body })
+            const body = new FormData(),
+                { json, blobs } = form.stringify({ entry, args, prefix, ...opts, ...ext })
+            body.append('json', json)
+            for (const blob of blobs) {
+                body.append('blobs[]', blob)
+            }
+            const method = 'POST',
+                req = await fetch(url, { method, body })
             return await req.json()
         }
 

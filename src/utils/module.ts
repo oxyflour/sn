@@ -16,7 +16,6 @@ function walkMod(filename: string, func: (mod: NodeModule) => void,
 }
 
 export function getHotMod(path: string) {
-    require('ts-node').register()
     const evt = new EventEmitter(),
         mod = require(path).default,
         ret = { evt, mod },
