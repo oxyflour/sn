@@ -33,7 +33,7 @@ export default async (req: Request, res: Response,
         [func, obj] = entry.reduce(([api], key) => [api && (api as any)[key], api], [mod, null]) as any,
         ctx = { func, obj, args, req },
         argNames = func && (func.__argnames || (func.__argnames = getArgumentNames(func))) || []
-    for (const [idx, name] of argNames) {
+    for (const [idx, name] of argNames.entries()) {
         if (name === '$ctx') {
             ctx.args[idx] = ctx
         }
