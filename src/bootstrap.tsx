@@ -44,7 +44,7 @@ const routes = [] as { file: string, path: string, comp: any }[]
 for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
     const files = context.keys() as string[],
         items = files
-        .filter(file => !(file.length > 2 && file.endsWith('/')))
+        .filter(file => !(file.length > 2 && file.endsWith('/')) && !(file.split('/').pop() + '').includes('.'))
         .map(file => ({
             file,
             tsx: files.includes(file + '.tsx') || files.includes(file + 'index.tsx'),
@@ -54,10 +54,8 @@ for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONT
         .map(({ file, tsx, vue, js }) => ({
             file: prefix + file.slice(2),
             comp: lazy(() => context(file), <div>...</div>, <div>500</div>, { tsx, vue, js }),
-            path: prefix + file.slice(2).replace(/\[([^\]]+)]/, ':$1'),
-        })).sort((a, b) => {
-            return b.path.split('/').length - a.path.split('/').length
-        })
+            path: prefix + file.slice(2).replace(/\[([^\]]+)]/g, ':$1'),
+        })).sort().reverse()
     routes.push(...items)
 }
 
