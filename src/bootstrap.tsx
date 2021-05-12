@@ -18,25 +18,28 @@ if (!root) {
     })
 }
 
-function lazy(fetch: () => any, loading: JSX.Element, error: JSX.Element, opts: { [key: string]: boolean }) {
+function lazy(fetch: () => any, opts: { [key: string]: boolean }) {
     return function Lazy(props: any) {
-        const [elem, setElem] = useState(loading),
+        const [status, setStatus] = useState({ loading: false, error: null, comp: null as any }),
             history = useHistory()
         async function init() {
+            setStatus({ loading: true, error: null, comp: null })
             try {
-                const comp = await fetch()
-                opts.tsx || opts.js ?
-                    setElem(React.createElement(comp.default, props)) :
-                opts.vue ?
-                    setElem(<VueWrapper route={ props } history={ history } component={ comp.default } />) :
-                    setElem(<div>unknown component fetched: {JSON.stringify(comp)}</div>)
+                setStatus({ loading: false, error: null, comp: await fetch() })
             } catch (err) {
-                console.log(err)
-                setElem(error)
+                setStatus({ loading: false, error: err, comp: null })
             }
         }
         useEffect(() => { init() }, [])
-        return elem
+        return status.loading ?
+                (opts.loading || <div>...</div>) :
+            status.error ?
+                (opts.error || <div>500</div>) :
+            opts.tsx || opts.js ?
+                <status.comp.default { ...props  }></status.comp.default> :
+            opts.vue ?
+                <VueWrapper route={ props } history={ history } component={ status.comp.default } /> :
+                <div>unknown component fetched: {JSON.stringify(status.comp)}</div>
     }
 }
 
@@ -53,7 +56,7 @@ for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONT
         }))
         .map(({ file, tsx, vue, js }) => ({
             file: prefix + file.slice(2),
-            comp: lazy(() => context(file), <div>...</div>, <div>500</div>, { tsx, vue, js }),
+            comp: lazy(() => context(file), { tsx, vue, js }),
             path: prefix + file.slice(2).replace(/\[([^\]]+)]/g, ':$1'),
         })).sort().reverse()
     routes.push(...items)
