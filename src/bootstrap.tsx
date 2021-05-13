@@ -22,7 +22,7 @@ function lazy(context: any, file: string, opts: any) {
     return function Lazy(props: any) {
         const [status, setStatus] = useState({ loading: true, error: null, comp: null as any }),
             history = useHistory()
-        async function init(context: any) {
+        async function load(context: any) {
             try {
                 setStatus({ loading: false, error: null, comp: await context(file) })
             } catch (err) {
@@ -30,8 +30,8 @@ function lazy(context: any, file: string, opts: any) {
             }
         }
         useEffect(() => {
-            init(context)
-            const reload = (evt: CustomEvent) => init(evt.detail)
+            load(context)
+            const reload = (evt: CustomEvent) => load(evt.detail)
             document.addEventListener('hot' + context.id, reload as any)
             return () => document.removeEventListener('hot' + context.id, reload as any)
         }, [])
