@@ -41,16 +41,18 @@ function injectIncludes(modules: { [key: string]: { pages: string, lambda: strin
     const inc = window.SN_PAGE_CONTEXT = { }
     ` + Object.entries(modules).map(([key, { pages, lambda }]) => {
     return `
-    inc[${JSON.stringify('/' + key)}] = {
-        context: require.context(${JSON.stringify(pages)}),
-        lambda: ${JSON.stringify(path.join(lambda))}
+    {
+        const context = require.context(${JSON.stringify(pages)}),
+            lambda = ${JSON.stringify(path.join(lambda))}
+        inc[${JSON.stringify('/' + key)}] = { context, lambda }
+        if (module.hot) {
+            module.hot.accept(context.id, () => {
+                const detail = require.context(${JSON.stringify(pages)})
+                document.dispatchEvent(new CustomEvent('hot' + context.id, { detail }))
+            })
+        }
     }
-    `}).join('\n') + `
-    const mod = module
-    if (mod.hot) {
-        mod.hot.accept()
-    }
-    `
+    `}).join('\n')
 }
 
 export function getWebpackConfig(
