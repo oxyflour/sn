@@ -261,9 +261,10 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
         modules = getModules(options, [cwd]),
-        config = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper),
-        compiler = webpack(config)
-    await new Promise((resolve, reject) => compiler.run(err => err ? reject(err) : resolve(null)))
+        config = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper)
+    await new Promise((resolve, reject) => webpack(config, (err, status) => {
+        err ? reject(err) : status?.hasErrors() ? reject(status.toString()) : resolve(null)
+    }))
     const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
@@ -299,7 +300,7 @@ program.command('start').action(runAsyncOrExit(async function() {
     app.use((req, res) => html(req, res, `/${output.filename}`))
 
     const server = http.createServer(app)
-    server.listen(8080, () => {
+    server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
 }))

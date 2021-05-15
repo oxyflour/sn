@@ -43,7 +43,7 @@ export function getModules({ pages, lambda, include }: { pages: string, lambda: 
     const modules = { } as { [key: string]: { pages: string, lambda: string, mod: any } }
     modules[''] = { pages, lambda, mod: require(lambda).default }
     for (const [prefix, mod] of Object.entries(include)) {
-        const pkg = require.resolve(path.join(mod, 'package.json'), { paths }),
+        const pkg = require.resolve(mod + '/package.json', { paths }),
             { sn = { } } = require(pkg),
             pages = path.join(pkg, '..', sn.pages || 'src/pages'),
             lambda = path.join(pkg, '..', sn.lambda || 'src/lambda')

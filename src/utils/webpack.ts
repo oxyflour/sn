@@ -89,7 +89,6 @@ export function getWebpackConfig(
             test: /\.tsx?$/,
             use: {
                 loader: require.resolve('ts-loader', { paths: [root] }),
-                options: { compilerOptions: tsconfig }
             },
             exclude: /node_modules/,
         },
@@ -113,6 +112,7 @@ export function getWebpackConfig(
     if (!config.output) {
         config.output = {
             publicPath: '/',
+            path: path.resolve(tsconfig.outDir || path.join(process.cwd(), 'dist')),
             filename: 'bundle.js',
         }
     }
