@@ -78,14 +78,15 @@ async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
     if (retry) {
         res.write(`retry: ${retry}\n\n`)
     }
-    emitter.on(evt, function send(data) {
+    function send(data: any) {
         res.write(`data: ${JSON.stringify(data)}\n\n`)
         if (data.done) {
             res.end()
         }
-        res.on('close', () => {
-            emitter.off(evt, send)
-        })
+    }
+    emitter.on(evt, send)
+    res.on('close', () => {
+        emitter.off(evt, send)
     })
 }
 
@@ -106,12 +107,13 @@ function html(req: Request, res: Response, script: string) {
 }
 
 async function pip(req: Request, res: Response, emitter: Emitter) {
-    const { evt, url, name, namespace, image, entry, args, prefix, ack, err, value, done } = req.body
-    if (url) {
-        if (image) {
+    const { evt, entry, args, prefix, start, ack, message } = req.body
+    if (start) {
+        const { url, kube } = start
+        if (kube) {
             const pod = `exe-${evt}`,
                 command = ['npx', 'sn', 'pip', evt, url]
-            await cluster.fork({ image, namespace, command, name: pod })
+            await cluster.fork({ ...kube, command, name: pod })
         } else {
             fork(__filename, ['pip', evt, url])
         }
@@ -122,12 +124,15 @@ async function pip(req: Request, res: Response, emitter: Emitter) {
         const defer = emitter.next(`req-${evt}`)
         emitter.emit(`ack-${evt}`, ack)
         res.send(await defer)
-    } else {
+    } else if (message) {
+        const { err, value, done, kube } = message
         emitter.emit(evt, { err, value, done })
         res.send({ })
-        if (done && name) {
-            await cluster.kill({ name, namespace })
+        if (done && kube) {
+            await cluster.kill(kube)
         }
+    } else {
+        res.status(403).end()
     }
 }
 
@@ -317,15 +322,16 @@ program.command('pip <evt> <url>').action(runAsyncOrExit(async function(evt: str
             { entry, args, prefix } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[], prefix: string },
             [func, obj] = entry.reduce(([api], key) => [(api as any)[key], api], [modules[prefix], null]) as any
         for await (const value of func.apply(obj, args)) {
-            await emit({ value })
+            await emit({ message: { value } })
         }
     } catch (err) {
         const { message, name } = err || { }
-        await emit({ err: { ...err, message, name } })
+        await emit({ message: { err: { ...err, message, name } } })
     }
     const name = process.env.SN_FORK_NAME,
-        namespace = process.env.SN_FORK_NAMESPACE || 'default'
-    await emit({ name, namespace, done: true })
+        namespace = process.env.SN_FORK_NAMESPACE || 'default',
+        kube = name && namespace && { name, namespace }
+    await emit({ message: { kube, done: true } })
     process.exit()
 }))
 
