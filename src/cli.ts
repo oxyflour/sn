@@ -6,9 +6,8 @@ import http from 'http'
 import express, { Request, Response } from 'express'
 import mkdirp from 'mkdirp'
 import program from 'commander'
-import fetch from 'node-fetch'
 import multer from 'multer'
-import { exec, fork } from 'mz/child_process'
+import { exec } from 'mz/child_process'
 import { json } from 'body-parser'
 import { Server } from 'socket.io'
 
@@ -106,36 +105,6 @@ function html(req: Request, res: Response, script: string) {
 </html>`)
 }
 
-async function pip(req: Request, res: Response, emitter: Emitter) {
-    const { evt, entry, args, prefix, start, ack, message } = req.body
-    if (start) {
-        const { url, kube } = start
-        if (kube) {
-            const pod = `exe-${evt}`,
-                command = ['npx', 'sn', 'pip', evt, url]
-            await cluster.fork({ ...kube, command, name: pod })
-        } else {
-            fork(__filename, ['pip', evt, url])
-        }
-        const ack = await emitter.next(`ack-${evt}`)
-        emitter.emit(`req-${evt}`, { entry, args, prefix })
-        res.send(ack)
-    } else if (ack) {
-        const defer = emitter.next(`req-${evt}`)
-        emitter.emit(`ack-${evt}`, ack)
-        res.send(await defer)
-    } else if (message) {
-        const { err, value, done, kube } = message
-        emitter.emit(evt, { err, value, done })
-        res.send({ })
-        if (done && kube) {
-            await cluster.kill(kube)
-        }
-    } else {
-        res.status(403).end()
-    }
-}
-
 async function getTsConfig() {
     const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json') || path.join(__dirname, '..', 'tsconfig.json'),
         { config: json, error } = ts.parseConfigFileTextToJson(configPath, await fs.readFile(configPath, 'utf8'))
@@ -203,7 +172,6 @@ program.action(runAsyncOrExit(async function() {
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
-    app.post('/pip/*', upload.any(), (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
     const hot = getHotMod(options.lambda)
@@ -297,7 +265,6 @@ program.command('start').action(runAsyncOrExit(async function() {
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
-    app.post('/pip/*', upload.any(), (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
     const { output = { } } = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper)
@@ -308,31 +275,6 @@ program.command('start').action(runAsyncOrExit(async function() {
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
-}))
-
-program.command('pip <evt> <url>').action(runAsyncOrExit(async function(evt: string, url: string) {
-    async function emit(data: any) {
-        const method = 'POST',
-            headers = { Accept: 'application/json', 'Content-Type': 'application/json' },
-            req = await fetch(url, { method, headers, body: JSON.stringify({ evt, ...data }) })
-        return await req.json()
-    }
-    try {
-        const modules = getModules(options, [cwd]),
-            { entry, args, prefix } = await emit({ ack: { pid: process.pid } }) as { entry: string[], args: any[], prefix: string },
-            [func, obj] = entry.reduce(([api], key) => [(api as any)[key], api], [modules[prefix], null]) as any
-        for await (const value of func.apply(obj, args)) {
-            await emit({ message: { value } })
-        }
-    } catch (err) {
-        const { message, name } = err || { }
-        await emit({ message: { err: { ...err, message, name } } })
-    }
-    const name = process.env.SN_FORK_NAME,
-        namespace = process.env.SN_FORK_NAMESPACE || 'default',
-        kube = name && namespace && { name, namespace }
-    await emit({ message: { kube, done: true } })
-    process.exit()
 }))
 
 program.on('command:*', () => {
