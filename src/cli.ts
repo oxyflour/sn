@@ -81,9 +81,11 @@ async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
     emitter.on(evt, function send(data) {
         res.write(`data: ${JSON.stringify(data)}\n\n`)
         if (data.done) {
-            emitter.off(evt, send)
             res.end()
         }
+        res.on('close', () => {
+            emitter.off(evt, send)
+        })
     })
 }
 
@@ -195,7 +197,7 @@ program.action(runAsyncOrExit(async function() {
     const emitter = new Emitter(),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
-    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, modules, emitter, middlewares))
+    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.post('/pip/*', upload.any(), (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
@@ -288,7 +290,7 @@ program.command('start').action(runAsyncOrExit(async function() {
         emitter = new Emitter(),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
-    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, modules, emitter, middlewares))
+    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.post('/pip/*', upload.any(), (req, res) => pip(req, res, emitter))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 

@@ -53,7 +53,7 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
                 const target = Object.assign(new URL(location.href), { pathname: `/pip/${evt}` }),
                     image = (window as any).SN_DEPLOY_IMAGE,
                     namespace = (window as any).SN_DEPLOY_NAMESPACE
-                post(`${url}/pip/${part}`, { evt, image, namespace, url: target.toString() })
+                post(`${url}/rpc/${part}`, { evt, image, namespace, url: target.toString() })
             }
             const data = queue.unshift() || await new Promise(func => callbacks.push(func)) as any
             if (data.err) {

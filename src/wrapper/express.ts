@@ -24,8 +24,8 @@ function fileWrapper(file: Express.Multer.File) {
     }
 }
 
-export default async (req: Request, res: Response,
-        modules: { [prefix: string]: { mod: any } }, emitter: Emitter, middlewares: Middleware[]) => {
+export default async (req: Request, res: Response, emitter: Emitter,
+        modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) => {
     const json = req.body.json,
         blobs = Object.values(req.files || []).map(fileWrapper),
         { entry, args, evt, prefix } = form.parse({ json, blobs }) as { entry: string[], args: any[], evt: string, prefix: string },
