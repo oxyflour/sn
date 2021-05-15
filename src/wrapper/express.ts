@@ -4,7 +4,7 @@ import getArgumentNames from 'function-arguments'
 import Emitter from '../utils/emitter'
 import form from './form'
 
-export type Context = { func: Function, obj: any, args: any[], req: Request }
+export type Context = { func: Function, obj: any, args: any[], req: Request, emitter: Emitter }
 export type Middleware = (ctx: Context, next: Function) => any
 
 async function callWithMiddlewares(ctx: Context, [first, ...rest]: Middleware[], thenable: boolean) {
@@ -31,7 +31,7 @@ export default async (req: Request, res: Response, emitter: Emitter,
         { entry, args, evt, prefix } = form.parse({ json, blobs }) as { entry: string[], args: any[], evt: string, prefix: string },
         mod = modules[prefix]?.mod,
         [func, obj] = entry.reduce(([api], key) => [api && (api as any)[key], api], [mod, null]) as any,
-        ctx = { func, obj, args, req },
+        ctx = { func, obj, args, req, emitter },
         argNames = func && (func.__argnames || (func.__argnames = getArgumentNames(func))) || []
     for (const [idx, name] of argNames.entries()) {
         if (name === '$ctx') {
