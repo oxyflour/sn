@@ -226,7 +226,7 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 
     console.log(`INFO: deploying ${image} to namespace ${namespace}...`)
     const app = name.replace(/@/g, '').replace(/\W/g, '-')
-    await cluster.deploy({ namespace, image, app, name: app, type: serviceType })
+    await cluster.deploy({ namespace, image, app, port: parseInt(options.port), name: app, type: serviceType })
 
     console.log(`INFO: deployed image ${image} as ${app} in namespace ${namespace}`)
 }))

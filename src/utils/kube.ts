@@ -48,11 +48,12 @@ export const cluster = {
         const coreV1 = kc.makeApiClient(CoreV1Api)
         await coreV1.deleteNamespacedService(name, namespace)
     },
-    async deploy({ app, name, image, type, namespace = 'default', replicas = 1 }: {
+    async deploy({ app, name, image, type, port, namespace = 'default', replicas = 1 }: {
         app: string
         name: string
         image: string
         type: string
+        port: number
         namespace?: string
         replicas?: number
     }) {
@@ -73,7 +74,7 @@ export const cluster = {
                             containers: [{
                                 name: 'main',
                                 image,
-                                ports: [{ containerPort: 8080 }],
+                                ports: [{ containerPort: port }],
                                 env: [{
                                     name: 'SN_DEPLOY_IMAGE',
                                     value: image
@@ -100,7 +101,7 @@ export const cluster = {
                     type,
                     ports: [{
                         protocol: 'TCP',
-                        port: 8080,
+                        port,
                     }]
                 }
             } as V1Service
