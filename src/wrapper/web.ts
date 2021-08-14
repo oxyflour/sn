@@ -6,8 +6,8 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
     prefix?: string
     opts?: any
 }) => hookFunc({ } as T, (...stack) => {
-    const entry = stack.map(item => item.propKey),
-        part = entry.slice().reverse().join('/')
+    const entry = stack.map(item => item.propKey).reverse(),
+        part = entry.slice().join('/')
     return (...args: any[]) => {
         async function post(url: string, ext: any) {
             const body = new FormData(),
