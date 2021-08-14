@@ -64,7 +64,7 @@ export const cluster = {
             coreV1 = kc.makeApiClient(CoreV1Api)
 
         const pod = {
-            metadata: { labels: { app } },
+            metadata: { name, labels: { app } },
             spec: {
                 containers: [{
                     name: 'main',

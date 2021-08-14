@@ -228,15 +228,16 @@ program.command('deploy').action(runAsyncOrExit(async function() {
         pubsub = app + '-pubsub',
         port = parseInt(options.port)
     await cluster.deploy({
-        namespace, image, app, port,
+        namespace, image, port,
+        app,
         name: app,
         type: serviceType,
         env: { SN_DEPLOY_PUBSUB: `ws://${pubsub}:${port}` }
     })
     await cluster.deployPubsub({
         namespace, image, port,
-        name: pubsub,
         app: pubsub,
+        name: pubsub,
         type: 'ClusterIP',
         env: { SN_SERVE_PUBSUB: '1' }
     })
