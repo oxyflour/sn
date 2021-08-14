@@ -4,14 +4,26 @@ import path from 'path'
 import ignore from 'ignore'
 import { S3 } from 'aws-sdk'
 import { c as tarc } from 'tar'
-import { CoreV1Api, AppsV1Api, KubeConfig, V1Service, V1Deployment } from '@kubernetes/client-node'
+import { CoreV1Api, AppsV1Api, KubeConfig, V1Service, V1Deployment, V1Pod } from '@kubernetes/client-node'
+
+let cache = null as null | KubeConfig
+function getKubeConfig() {
+    if (!cache) {
+        cache = new KubeConfig()
+        cache.loadFromDefault()
+    }
+    return cache
+}
 
 export const cluster = {
-    async fork({ name, image, command, namespace = 'default' }: { name: string, image: string, command: string[], namespace?: string }) {
-        const kc = new KubeConfig()
-        kc.loadFromDefault()
-
-        const coreV1 = kc.makeApiClient(CoreV1Api)
+    async fork({ name, image, command, namespace, env = { } }: {
+        name: string
+        image: string
+        command: string[]
+        namespace: string
+        env?: Record<string, string>
+    }) {
+        const coreV1 = getKubeConfig().makeApiClient(CoreV1Api)
         await coreV1.createNamespacedPod(namespace, {
             metadata: { name },
             spec: {
@@ -19,28 +31,18 @@ export const cluster = {
                     name: 'main',
                     image,
                     command,
-                    env: [{
-                        name: 'SN_FORK_NAME',
-                        value: name
-                    }, {
-                        name: 'SN_FORK_NAMESPACE',
-                        value: namespace
-                    }]
+                    env: Object.entries(env).map(([name, value]) => ({ name, value }))
                 }],
                 restartPolicy: 'Never'
             }
         })
     },
     async kill({ name, namespace = 'default' }: { name: string, namespace?: string }) {
-        const kc = new KubeConfig()
-        kc.loadFromDefault()
-
-        const coreV1 = kc.makeApiClient(CoreV1Api)
+        const coreV1 = getKubeConfig().makeApiClient(CoreV1Api)
         await coreV1.deleteNamespacedPod(name, namespace)
     },
     async remove({ name, namespace = 'default' }: { name: string, namespace?: string }) {
-        const kc = new KubeConfig()
-        kc.loadFromDefault()
+        const kc = getKubeConfig()
 
         const appsV1 = kc.makeApiClient(AppsV1Api)
         await appsV1.deleteNamespacedDeployment(name, namespace)
@@ -48,7 +50,7 @@ export const cluster = {
         const coreV1 = kc.makeApiClient(CoreV1Api)
         await coreV1.deleteNamespacedService(name, namespace)
     },
-    async deploy({ app, name, image, type, port, namespace = 'default', replicas = 1 }: {
+    async deployPubsub({ app, name, image, type, port, namespace = 'default', env = { } }: {
         app: string
         name: string
         image: string
@@ -56,9 +58,58 @@ export const cluster = {
         port: number
         namespace?: string
         replicas?: number
+        env?: Record<string, string>
     }) {
-        const kc = new KubeConfig()
-        kc.loadFromDefault()
+        const kc = getKubeConfig(),
+            coreV1 = kc.makeApiClient(CoreV1Api)
+
+        const pod = {
+            metadata: { labels: { app } },
+            spec: {
+                containers: [{
+                    name: 'main',
+                    image,
+                    ports: [{ containerPort: port }],
+                    env: Object.entries(env).map(([name, value]) => ({ name, value }))
+                }]
+            }
+        } as V1Pod
+        try {
+            await coreV1.deleteNamespacedPod(name, namespace, undefined, undefined, 0)
+        } catch (err) {
+            // pass
+        }
+        await coreV1.createNamespacedPod(namespace, pod)
+
+        const service = {
+                metadata: { name },
+                spec: {
+                    selector: { app },
+                    type,
+                    ports: [{
+                        protocol: 'TCP',
+                        port,
+                    }]
+                }
+            } as V1Service
+        try {
+            await coreV1.deleteNamespacedService(name, namespace, undefined, undefined, 0)
+        } catch (err) {
+            // pass
+        }
+        await coreV1.createNamespacedService(namespace, service)
+    },
+    async deploy({ app, name, image, type, port, namespace = 'default', replicas = 1, env = { } }: {
+        app: string
+        name: string
+        image: string
+        type: string
+        port: number
+        namespace?: string
+        replicas?: number
+        env?: Record<string, string>
+    }) {
+        const kc = getKubeConfig()
 
         const appsV1 = kc.makeApiClient(AppsV1Api),
             deployment = {
@@ -75,13 +126,7 @@ export const cluster = {
                                 name: 'main',
                                 image,
                                 ports: [{ containerPort: port }],
-                                env: [{
-                                    name: 'SN_DEPLOY_IMAGE',
-                                    value: image
-                                }, {
-                                    name: 'SN_DEPLOY_NAMESPACE',
-                                    value: namespace
-                                }]
+                                env: Object.entries(env).map(([name, value]) => ({ name, value }))
                             }]
                         }
                     }
@@ -124,8 +169,8 @@ ${config}
 COPY package*.json ./
 RUN npm ci
 COPY . ./
-RUN npx sn build
-CMD npx sn start
+RUN node node_modules/.bin/sn build
+CMD node node_modules/.bin/sn start
 `
 }
 
@@ -170,11 +215,17 @@ export const kaniko = {
 
         const api = kc.makeApiClient(CoreV1Api),
             dockerConfig = path.join(os.homedir(), '.docker', 'config.json')
+        async function loadDockerConfig(file: string) {
+            const content = JSON.parse(await fs.readFile(file, 'utf8'))
+            // clear this to avoid `exec: "docker-credential-desktop": executable file not found in $PATH` Error
+            delete content.credsStore
+            return JSON.stringify(content)
+        }
         await api.createNamespacedConfigMap(namespace, {
             metadata: { name: uid },
             data: {
                 dockerConfig: await fs.exists(dockerConfig) ?
-                    await fs.readFile(dockerConfig, 'utf8') :
+                    await loadDockerConfig(dockerConfig) :
                     '{}',
                 dockerFile: await fs.exists('Dockerfile') ?
                     await fs.readFile('Dockerfile', 'utf8') :

@@ -16,7 +16,7 @@ import webpack from 'webpack'
 import WebpackDevMiddleware from 'webpack-dev-middleware'
 import WebpackHotMiddleware from 'webpack-hot-middleware'
 
-import rpc from './wrapper/express'
+import { pip, rpc } from './wrapper/express'
 import { getHotMod, getMiddlewares, getModules } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
 import { getWebpackConfig } from './utils/webpack'
@@ -43,6 +43,7 @@ const options = {
     include: { } as { [key: string]: string },
     middlewares: [ ] as string[],
     port: '8080',
+    emitter: '',
     deploy: {
         namespace: 'default',
         registry: 'pc10.yff.me',
@@ -97,8 +98,6 @@ function html(req: Request, res: Response, script: string) {
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script>window.SN_DEPLOY_IMAGE="${process.env.SN_DEPLOY_IMAGE || ''}"</script>
-    <script>window.SN_DEPLOY_NAMESPACE="${process.env.SN_DEPLOY_NAMESPACE || 'default'}"</script>
     <script defer src="${script}"></script>
 </head>
 <body></body>
@@ -168,7 +167,7 @@ program.action(runAsyncOrExit(async function() {
     app.use(WebpackDevMiddleware(compiler))
     app.use(WebpackHotMiddleware(compiler))
 
-    const emitter = new Emitter(),
+    const emitter = new Emitter(options.emitter),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
@@ -225,8 +224,22 @@ program.command('deploy').action(runAsyncOrExit(async function() {
     await kaniko.build({ ...options.deploy, namespace, image })
 
     console.log(`INFO: deploying ${image} to namespace ${namespace}...`)
-    const app = name.replace(/@/g, '').replace(/\W/g, '-')
-    await cluster.deploy({ namespace, image, app, port: parseInt(options.port), name: app, type: serviceType })
+    const app = name.replace(/@/g, '').replace(/\W/g, '-'),
+        pubsub = app + '-pubsub',
+        port = parseInt(options.port)
+    await cluster.deploy({
+        namespace, image, app, port,
+        name: app,
+        type: serviceType,
+        env: { SN_DEPLOY_PUBSUB: `ws://${pubsub}:${port}` }
+    })
+    await cluster.deployPubsub({
+        namespace, image, port,
+        name: pubsub,
+        app: pubsub,
+        type: 'ClusterIP',
+        env: { SN_SERVE_PUBSUB: '1' }
+    })
 
     console.log(`INFO: deployed image ${image} as ${app} in namespace ${namespace}`)
 }))
@@ -261,7 +274,7 @@ program.command('start').action(runAsyncOrExit(async function() {
 
     const tsconfig = await getTsConfig(),
         modules = getModules(options, [cwd]),
-        emitter = new Emitter(),
+        emitter = new Emitter(options.emitter || process.env.SN_DEPLOY_PUBSUB),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
@@ -272,9 +285,25 @@ program.command('start').action(runAsyncOrExit(async function() {
     app.use((req, res) => html(req, res, `/${output.filename}`))
 
     const server = http.createServer(app)
+    if (process.env.SN_SERVE_PUBSUB) {
+        const io = new Server(server)
+        io.on('connect', ws => {
+            ws.on('join', evt => ws.join(evt))
+            ws.on('leave', evt => ws.leave(evt))
+            ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
+        })
+    }
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
+}))
+
+program.command('pip <res>').action(runAsyncOrExit(async function (res) {
+    const modules = getModules(options, [cwd]),
+        emitter = new Emitter(options.emitter || process.env.SN_DEPLOY_PUBSUB),
+        middlewares = getMiddlewares(options.middlewares, [cwd])
+    await pip(res, emitter, modules, middlewares)
+    process.exit(0)
 }))
 
 program.on('command:*', () => {
