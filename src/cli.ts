@@ -84,9 +84,11 @@ async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
             res.end()
         }
     }
+    emitter.emit(`sse.open.${evt}`, { })
     emitter.on(evt, send)
     res.on('close', () => {
         emitter.off(evt, send)
+        emitter.emit(`sse.close.${evt}`, { })
     })
 }
 
