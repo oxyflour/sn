@@ -18,14 +18,14 @@ if (!root) {
     })
 }
 
-function lazy(context: any, file: string, opts: any) {
+function lazy(context: any, opts: any) {
     return function Lazy(props: any) {
         const [status, setStatus] = useState({ loading: true, error: null, comp: null as any }),
             history = useHistory()
         async function load(context: any) {
             try {
-                setStatus({ loading: false, error: null, comp: await context(file) })
-            } catch (err) {
+                setStatus({ loading: false, error: null, comp: await context() })
+            } catch (err: any) {
                 setStatus({ loading: false, error: err, comp: null })
             }
         }
@@ -49,18 +49,20 @@ function lazy(context: any, file: string, opts: any) {
 
 const routes = [] as { file: string, path: string, comp: any }[]
 for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
-    const files = context.keys() as string[],
-        items = files
-        .filter(file => !(file.length > 2 && file.endsWith('/')) && !(file.split('/').pop() + '').includes('.'))
-        .map(file => ({
-            file: prefix + file.slice(2),
-            path: prefix + file.slice(2).replace(/\[([^\]]+)]/g, ':$1'),
-            comp: lazy(context, file, {
-                tsx: files.includes(file + '.tsx') || files.includes(file + 'index.tsx'),
-                vue: files.includes(file + '.vue') || files.includes(file + 'index.vue'),
-                js:  files.includes(file + '.js')  || files.includes(file + 'index.js'),
-            }),
-        })).sort().reverse()
+    const stripRight = (input: string, suffix: string) => input.endsWith(suffix) ? input.slice(0, -suffix.length) : input,
+        stripLeft = (input: string, prefix: string) => input.startsWith(prefix) ? input.slice(prefix.length) : input,
+        items = Object.entries(context)
+            .map(([file, load]) => ({
+                file: prefix + file.slice(2),
+                path: prefix +
+                    stripRight(stripLeft(file.slice(2), 'pages'), '/index.tsx')
+                    .replace(/\[([^\]]+)]/g, ':$1'),
+                comp: lazy(load, {
+                    tsx: file.endsWith('.tsx'),
+                    vue: file.endsWith('.vue'),
+                    js:  file.endsWith('.js'),
+                }),
+            })).sort().reverse()
     routes.push(...items)
 }
 

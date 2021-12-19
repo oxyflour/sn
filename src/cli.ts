@@ -12,14 +12,12 @@ import { json } from 'body-parser'
 import { Server } from 'socket.io'
 
 import ts from 'typescript'
-import webpack from 'webpack'
-import WebpackDevMiddleware from 'webpack-dev-middleware'
-import WebpackHotMiddleware from 'webpack-hot-middleware'
+import * as vite from 'vite'
 
+import vitePlugin from './utils/vite'
 import { pip, rpc } from './wrapper/express'
 import { getHotMod, getMiddlewares, getModules } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
-import { getWebpackConfig } from './utils/webpack'
 import Emitter from './utils/emitter'
 
 const cwd = process.cwd(),
@@ -92,19 +90,18 @@ async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
     })
 }
 
-function html(req: Request, res: Response, script: string) {
-    req
-    res.send(`<!DOCTYPE html>
+const bootstrapPath = path.join(__dirname, '..', 'src', 'bootstrap.tsx'),
+    entryPath = './' + path.relative(process.cwd(), bootstrapPath).replace(/\\/g, '/'),
+    html = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script defer src="${script}"></script>
+    <script type="module" src="${entryPath}"></script>
 </head>
 <body></body>
-</html>`)
-}
+</html>`
 
 async function getTsConfig() {
     const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json') || path.join(__dirname, '..', 'tsconfig.json'),
@@ -119,7 +116,7 @@ function isMod(mod: string) {
     try {
         require.resolve(mod, { paths: [cwd] })
         return true
-    } catch (err) {
+    } catch (err: any) {
         if (err.code === 'MODULE_NOT_FOUND') {
             return false
         } else {
@@ -160,20 +157,15 @@ async function prepareDirectory() {
 
 program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
-    const tsconfig = getTsConfig(),
-        modules = getModules(options, [cwd]),
-        config = getWebpackConfig(modules, tsconfig, 'development', options.webpack, options.wrapper),
-        compiler = webpack(config),
-        app = express()
-    app.use(json())
-    app.use(WebpackDevMiddleware(compiler))
-    app.use(WebpackHotMiddleware(compiler))
-
-    const emitter = new Emitter(options.emitter),
+    const modules = getModules(options, [cwd]),
+        app = express(),
+        emitter = new Emitter(options.emitter),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
+    app.use(json())
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
+    app.use((_, res) => res.send(html))
 
     const hot = getHotMod(options.lambda)
     Object.defineProperty(modules[''], 'mod', {
@@ -186,19 +178,20 @@ program.action(runAsyncOrExit(async function() {
         emitter.emit('watch', { reload: true })
     })
 
-    const { output = { } } = config
-    app.use((req, res) => html(req, res, `${output.publicPath}${output.filename}`))
-
-    const server = http.createServer(app),
-        io = new Server(server)
+    const server = await vite.createServer({
+        plugins: [vitePlugin(options, modules, app)]
+    })
+    if (!server.httpServer) {
+        throw Error('HTTP server not available')
+    }
+    const io = new Server(server.httpServer)
     io.on('connect', ws => {
         ws.on('join', evt => ws.join(evt))
         ws.on('leave', evt => ws.leave(evt))
         ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
-    server.listen(parseInt(options.port), () => {
-        console.log(`[EX] listening ${JSON.stringify(server.address())}`)
-    })
+    await server.listen()
+    server.printUrls()
 }))
 
 program.command('remove').action(runAsyncOrExit(async function() {
@@ -250,13 +243,15 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
         modules = getModules(options, [cwd]),
-        config = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper)
-    await new Promise((resolve, reject) => webpack(config, (err, status) => {
-        err ? reject(err) : status?.hasErrors() ? reject(status.toString()) : resolve(null)
-    }))
-    const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
+        program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
+    if (!(await fs.exists('index.html'))) {
+        await fs.writeFile('index.html', html)
+    }
+    await vite.build({
+        plugins: [vitePlugin(options, modules)]
+    })
     for (const diagnostic of diags) {
         if (diagnostic.file) {
             let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start!)
@@ -272,20 +267,16 @@ program.command('build').action(runAsyncOrExit(async function () {
 }))
 
 program.command('start').action(runAsyncOrExit(async function() {
-    const app = express()
-    app.use(json())
-
-    const tsconfig = await getTsConfig(),
-        modules = getModules(options, [cwd]),
+    const modules = getModules(options, [cwd]),
         emitter = new Emitter(options.emitter || process.env.SN_DEPLOY_PUBSUB),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
-        upload = multer({ limits: { fileSize: 1024 ** 3 } })
+        upload = multer({ limits: { fileSize: 1024 ** 3 } }),
+        app = express()
+    app.use(json())
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
-
-    const { output = { } } = getWebpackConfig(modules, tsconfig, 'production', options.webpack, options.wrapper)
-    app.use(express.static(output.path || 'dist'))
-    app.use((req, res) => html(req, res, `/${output.filename}`))
+    app.use(express.static('dist'))
+    app.use((_, res) => res.sendFile(path.join(__dirname, 'index.html')))
 
     const server = http.createServer(app)
     if (process.env.SN_SERVE_PUBSUB) {
@@ -296,6 +287,7 @@ program.command('start').action(runAsyncOrExit(async function() {
             ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
         })
     }
+
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })

@@ -30,7 +30,7 @@ async function startLocal(emitter: Emitter, evt: string, iter: any) {
         for await (const value of iter) {
             emitter.emit(evt, { value })
         }
-    } catch (err) {
+    } catch (err: any) {
         const { message, name } = err || { }
         emitter.emit(evt, { err: { ...err, message, name } })
     }
@@ -76,7 +76,7 @@ export async function pip(res: string, emitter: Emitter,
             { evt } = ctx
         startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares, false))
         emitter.emit(res, { ret: { } })
-    } catch (err) {
+    } catch (err: any) {
         const { message, name } = err || { }
         emitter.emit(res, { err: { ...err, message, name } })
     }
@@ -102,7 +102,7 @@ export async function rpc(req: Request, res: Response, emitter: Emitter,
             const ret = await callWithMiddlewares(ctx, middlewares, true)
             res.send({ ret })
         }
-    } catch (err) {
+    } catch (err: any) {
         const { message, name } = err || { }
         res.send({ err: { ...err, message, name } })
     }
