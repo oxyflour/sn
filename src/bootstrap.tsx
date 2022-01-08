@@ -1,3 +1,5 @@
+import 'vite/modulepreload-polyfill'
+
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { BrowserRouter as Router, Route, Switch } from 'react-router-dom'
@@ -49,13 +51,14 @@ function lazy(context: any, opts: any) {
 
 const routes = [] as { file: string, path: string, comp: any }[]
 for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
-    const stripRight = (input: string, suffix: string) => input.endsWith(suffix) ? input.slice(0, -suffix.length) : input,
-        stripLeft = (input: string, prefix: string) => input.startsWith(prefix) ? input.slice(prefix.length) : input,
-        items = Object.entries(context)
+    const items = Object.entries(context)
             .map(([file, load]) => ({
                 file: prefix + file.slice(2),
                 path: prefix +
-                    stripRight(stripLeft(file.slice(2), 'pages'), '/index.tsx')
+                    file
+                    .replace(/\/index\.(tsx|jsx|vue)$/, '')
+                    .replace(/\.(tsx|jsx|vue)$/, '')
+                    .split('/').slice(2).join('/')
                     .replace(/\[([^\]]+)]/g, ':$1'),
                 comp: lazy(load, {
                     tsx: file.endsWith('.tsx'),

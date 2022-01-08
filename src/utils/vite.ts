@@ -1,7 +1,6 @@
 import path from 'path'
 import vite from 'vite'
 import isInside from 'is-path-inside'
-import { Express } from 'express'
 
 function getImportPath(dir: string, cwd: string) {
     const ret = path.relative(cwd, dir).replace(/\\/g, '/')
@@ -10,8 +9,7 @@ function getImportPath(dir: string, cwd: string) {
 
 export default function vitePlugin(
         options: { wrapper?: string },
-        modules: Record<string, { pages: string, lambda: string, mod: any }>,
-        app?: Express) {
+        modules: Record<string, { pages: string, lambda: string, mod: any }>) {
     const wrapperPath = options.wrapper &&
             require.resolve(options.wrapper, { paths: [process.cwd()] }) ||
             path.join(__dirname, '..', '..', 'src', 'wrapper', 'web'),
@@ -30,7 +28,7 @@ export default function vitePlugin(
                 `
             } else if (id === bootstrapPathId) {
                 const entries = Object.entries(modules).map(([key, { pages, lambda }]) => {
-                    const pagePath = getImportPath(pages, bootstrapDir) + '/*.tsx'
+                    const pagePath = getImportPath(pages, bootstrapDir) + '/**/*.tsx'
                     return `{` +
                             `const context = import.meta.glob(${JSON.stringify(pagePath)}),` +
                                 `lambda = ${JSON.stringify(lambda)};` +
@@ -42,20 +40,5 @@ export default function vitePlugin(
                 return code
             }
         },
-        configureServer(server) {
-            server.middlewares.use((req, res, next) => {
-                const { url = '' } = req
-                if (url.startsWith('/@vite/') ||
-                    url.startsWith('/src/') ||
-                    url.startsWith('/dist/') ||
-                    url.startsWith('/node_modules/')) {
-                    next()
-                } else if (app) {
-                    app.call(app, req as any, res as any, next)
-                } else {
-                    next()
-                }
-            })
-        }
     } as vite.PluginOption
 }

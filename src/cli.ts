@@ -12,6 +12,7 @@ import { json } from 'body-parser'
 import { Server } from 'socket.io'
 
 import ts from 'typescript'
+import react from '@vitejs/plugin-react'
 import * as vite from 'vite'
 
 import vitePlugin from './utils/vite'
@@ -34,7 +35,6 @@ function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
 }
 
 const options = {
-    webpack: fs.existsSync(path.join(cwd, 'webpack.config.js')) ? path.join(cwd, 'webpack.config.js') : undefined,
     pages: path.join(cwd, 'src', 'pages'),
     lambda: path.join(cwd, 'src', 'lambda'),
     wrapper: '',
@@ -98,6 +98,17 @@ const bootstrapPath = path.join(__dirname, '..', 'src', 'bootstrap.tsx'),
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script type="module">
+        // https://vitejs.dev/guide/backend-integration.html
+        import RefreshRuntime from '/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+        // https://github.com/vitejs/vite/issues/4786
+        window.__VITE_IS_MODERN__ = true
+    </script>
+    <script type="module" src="/@vite/client"></script>
     <script type="module" src="${entryPath}"></script>
 </head>
 <body></body>
@@ -165,7 +176,6 @@ program.action(runAsyncOrExit(async function() {
     app.use(json())
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
-    app.use((_, res) => res.send(html))
 
     const hot = getHotMod(options.lambda)
     Object.defineProperty(modules[''], 'mod', {
@@ -178,20 +188,26 @@ program.action(runAsyncOrExit(async function() {
         emitter.emit('watch', { reload: true })
     })
 
-    const server = await vite.createServer({
-        plugins: [vitePlugin(options, modules, app)]
+    const viteServer = await vite.createServer({
+        server: { port: parseInt(options.port), middlewareMode: true },
+        plugins: [react(), vitePlugin(options, modules)]
     })
-    if (!server.httpServer) {
-        throw Error('HTTP server not available')
+    app.use(viteServer.middlewares)
+    app.use((_, res) => res.send(html))
+
+    const server = http.createServer(app)
+    {
+        const io = new Server(server)
+        io.on('connect', ws => {
+            ws.on('join', evt => ws.join(evt))
+            ws.on('leave', evt => ws.leave(evt))
+            ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
+        })
     }
-    const io = new Server(server.httpServer)
-    io.on('connect', ws => {
-        ws.on('join', evt => ws.join(evt))
-        ws.on('leave', evt => ws.leave(evt))
-        ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
+
+    server.listen(parseInt(options.port), () => {
+        console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
-    await server.listen()
-    server.printUrls()
 }))
 
 program.command('remove').action(runAsyncOrExit(async function() {
@@ -242,16 +258,19 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 
 program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
-        modules = getModules(options, [cwd]),
-        program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
+        modules = getModules(options, [cwd])
+    await vite.build({
+        // https://github.com/vitejs/vite/issues/712
+        esbuild: { jsxInject: 'import React from "react"' },
+        plugins: [react(), vitePlugin(options, modules)]
+    })
+
+    const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
         emit = program.emit(),
         diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
     if (!(await fs.exists('index.html'))) {
         await fs.writeFile('index.html', html)
     }
-    await vite.build({
-        plugins: [vitePlugin(options, modules)]
-    })
     for (const diagnostic of diags) {
         if (diagnostic.file) {
             let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start!)
@@ -261,6 +280,7 @@ program.command('build').action(runAsyncOrExit(async function () {
             console.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
         }
     }
+    await fs.unlink('index.html')
     if (emit.emitSkipped) {
         throw Error(`tsc existed with code 1`)
     }
