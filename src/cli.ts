@@ -109,10 +109,11 @@ const bootstrapPath = path.join(__dirname, '..', 'src', 'bootstrap.tsx'),
         window.__VITE_IS_MODERN__ = true
     </script>
     <script type="module" src="/@vite/client"></script>
-    <script type="module" src="${entryPath}"></script>
+    <script type="module" src="/@yff/sn/src/bootstrap.tsx"></script>
 </head>
 <body></body>
 </html>`
+entryPath
 
 async function getTsConfig() {
     const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json') || path.join(__dirname, '..', 'tsconfig.json'),

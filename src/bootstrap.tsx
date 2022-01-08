@@ -53,9 +53,10 @@ const routes = [] as { file: string, path: string, comp: any }[]
 for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
     const items = Object.entries(context)
             .map(([file, load]) => ({
-                file: prefix + file.slice(2),
-                path: prefix +
-                    file
+                file: prefix + file
+                    .replace(/^\//, ''),
+                path: prefix + file
+                    .replace(/^\//, '')
                     .replace(/\/index\.(tsx|jsx|vue)$/, '')
                     .replace(/\.(tsx|jsx|vue)$/, '')
                     .split('/').slice(2).join('/')
@@ -68,6 +69,8 @@ for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONT
             })).sort().reverse()
     routes.push(...items)
 }
+
+console.log(routes)
 
 ReactDOM.render(<Router>
 <Switch>

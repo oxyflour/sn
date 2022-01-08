@@ -1,3 +1,4 @@
+import fs from 'fs'
 import path from 'path'
 import vite from 'vite'
 import isInside from 'is-path-inside'
@@ -12,30 +13,43 @@ export default function vitePlugin(
         modules: Record<string, { pages: string, lambda: string, mod: any }>) {
     const wrapperPath = options.wrapper &&
             require.resolve(options.wrapper, { paths: [process.cwd()] }) ||
-            path.join(__dirname, '..', '..', 'src', 'wrapper', 'web'),
-        bootstrapDir = path.join(__dirname, '..', '..', 'src'),
-        bootstrapPathId = path.join(bootstrapDir, 'bootstrap.tsx').replace(/\\/g, '/')
+            path.join(__dirname, '..', '..', 'src', 'wrapper', 'web')
     return {
         name: 'sn-vite',
+        resolveId(id, importer) {
+            if (id.startsWith('/@yff/sn/')) {
+                return id
+            }
+            if (importer?.startsWith('/@yff/sn/') && id.startsWith('.')) {
+                return path.join(path.dirname(importer), id + '.tsx').replace('\\', '/')
+            }
+            return
+        },
+        load(id) {
+            if (id.startsWith('/@yff/sn/')) {
+                const file = id.slice('/@yff/sn/'.length)
+                return fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8')
+            }
+            return
+        },
         transform(code, id) {
             const module = Object.entries(modules || { })
                 .find(([, { lambda }]) => isInside(id, lambda))
-            if (module) {
-                const prefix = module[0]
-                return `
-                import wrapper from ${JSON.stringify(getImportPath(wrapperPath, path.dirname(id)))}
-                export default wrapper(${JSON.stringify({ prefix })})
-                `
-            } else if (id === bootstrapPathId) {
-                const entries = Object.entries(modules).map(([key, { pages, lambda }]) => {
-                    const pagePath = getImportPath(pages, bootstrapDir) + '/**/*.tsx'
+            if (id === '/@yff/sn/src/bootstrap.tsx') {
+                const entries = Object.entries(modules).map(([key, { lambda }]) => {
                     return `{` +
-                            `const context = import.meta.glob(${JSON.stringify(pagePath)}),` +
+                            `const context = import.meta.glob('/src/pages/**/*.tsx'),` +
                                 `lambda = ${JSON.stringify(lambda)};` +
                             `ctx[${JSON.stringify('/' + key)}] = { context, lambda };` +
                         `}`
                     }).join(';')
                 return `{ const ctx = window.SN_PAGE_CONTEXT = { }; ${entries} };` + code
+            } else if (module) {
+                const prefix = module[0]
+                return `
+                import wrapper from ${JSON.stringify(getImportPath(wrapperPath, path.dirname(id)))}
+                export default wrapper(${JSON.stringify({ prefix })})
+                `
             } else {
                 return code
             }

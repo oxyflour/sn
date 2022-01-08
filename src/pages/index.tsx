@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import lambda from '../lambda'
 
@@ -19,5 +20,9 @@ export default function App() {
         hello { message }!<input type="file" onChange={ upload }></input>
         <br />
         { counter }
+        <br />
+        <Link to="a">a</Link>
+        <br />
+        <Link to="b">b</Link>
     </div>
 }
