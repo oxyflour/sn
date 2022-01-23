@@ -1,3 +1,4 @@
-import * as React from 'react'
-import { Link } from 'react-router-dom'
-export { React, Link }
+import web from './wrapper/web'
+import resource from './wrapper/resource'
+
+export const wrapper = { web, resource }

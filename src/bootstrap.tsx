@@ -72,8 +72,6 @@ for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONT
     routes.push(...items)
 }
 
-console.log(routes)
-
 ReactDOM.render(<Router>
 <Switch>
     { routes.map(({ file, path, comp }) => <Route exact key={ file } path={ path } component={ comp } />) }
