@@ -37,8 +37,9 @@ export default function resource<T extends Api>(api: T) {
         }
     }
     return hookFunc({ }, (...stack) => {
-        const func = stack.reduce((ret, { propKey }) => ret && ret[propKey], api as any) as AsyncFunc,
-            key = stack.map(item => item.propKey).join('.')
+        const keys = stack.reverse().map(item => item.propKey),
+            func = keys.reduce((ret, key) => ret && ret[key], api as any) as AsyncFunc,
+            key = keys.join('.')
         if (!func) {
             throw Error(`${key} is empty or null`)
         }
