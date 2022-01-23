@@ -40,7 +40,9 @@ function lazy(context: any, opts: any) {
         return status.loading ?
                 (opts.loading || <div>...</div>) :
             status.error ?
-                (opts.error || <div>500</div>) :
+                (typeof opts.error === 'function' ?
+                    opts.error(status.error) :
+                    (opts.error || <div>500 { `${status.error}` }</div>)) :
             opts.tsx || opts.js ?
                 <status.comp.default { ...props  }></status.comp.default> :
             opts.vue ?
