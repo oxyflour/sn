@@ -1,3 +1,6 @@
+import { Buffer } from "buffer"
+const { File } = globalThis
+
 export function clone(obj: any, map: (obj: any) => any): any {
     const mapped = map(obj)
     if (mapped !== obj) {
@@ -11,17 +14,27 @@ export function clone(obj: any, map: (obj: any) => any): any {
     }
 }
 
-export function stringify(obj: any) {
-    const blobs = [] as (Blob | File)[],
-        map = (obj: any) => obj instanceof Blob || obj instanceof globalThis.File ?
-            (blobs.push(obj), { __buf: blobs.length - 1 }) : obj,
-        json = JSON.stringify(clone(obj, map))
-    return { json, blobs }
+export function encode(obj: any) {
+    const blobs = [] as any[],
+        map = (obj: any) =>
+            (File && obj instanceof File) ||
+            (obj instanceof Buffer) ?
+                (blobs.push(obj), { __buf: blobs.length - 1 }) :
+            obj instanceof Date ?
+                { __date: obj.toString() } :
+                obj,
+        meta = clone(obj, map)
+    return { meta, blobs }
 }
 
-export function parse({ json, blobs }: { json: string, blobs: any[] }) {
-    const map = (obj: any) => obj && obj.__buf !== undefined ? blobs[obj.__buf] : obj
-    return clone(JSON.parse(json), map)
+export function decode({ meta, blobs }: { meta: any, blobs: any[] }) {
+    const map = (obj: any) =>
+        obj?.__buf !== undefined ?
+            blobs[obj.__buf] :
+        obj?.__date ?
+            new Date(obj.__date) :
+            obj
+    return clone(meta, map)
 }
 
-export default { stringify, parse }
+export default { encode, decode }

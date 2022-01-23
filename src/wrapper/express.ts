@@ -17,12 +17,13 @@ async function callWithMiddlewares(ctx: Context, [first, ...rest]: Middleware[],
     }
 }
 
-function fileWrapper(file: Express.Multer.File) {
-    return {
-        name: file.originalname,
-        size: file.size,
-        arrayBuffer: () => Promise.resolve(file.buffer),
-    }
+function makeBuffer(file: Express.Multer.File) {
+    return file.originalname.startsWith('__blob_') ?
+        file.buffer : {
+            name: file.originalname,
+            size: file.size,
+            arrayBuffer: () => Promise.resolve(file.buffer),
+        }
 }
 
 async function startLocal(emitter: Emitter, evt: string, iter: any) {
@@ -45,16 +46,16 @@ async function forkRemote(emitter: Emitter, evt: string,
         env = { SN_DEPLOY_PUBSUB: process.env.SN_DEPLOY_PUBSUB || '' }
     await cluster.fork({ name, namespace, image, command, env })
     await emitter.next(res)
-    const json = req.body.json,
+    const meta = req.body.meta,
         blobs = Object.values(req.files || []).map(file => ({ ...file }))
-    emitter.emit(res, [json, ...blobs])
+    emitter.emit(res, [meta, ...blobs])
     return await emitter.next(res)
 }
 
-function makeContext(json: string, files: any[], emitter: Emitter,
+function makeContext(meta: any, files: any[], emitter: Emitter,
         modules: { [prefix: string]: { mod: any } }, req?: Request) {
-    const blobs = Object.values(files || []).map(fileWrapper),
-        { entry, args, evt, prefix } = form.parse({ json, blobs }) as { entry: string[], args: any[], evt: string, prefix: string },
+    const blobs = Object.values(files).map(makeBuffer),
+        { entry, args, evt, prefix } = form.decode({ meta, blobs }) as { entry: string[], args: any[], evt: string, prefix: string },
         mod = modules[prefix]?.mod,
         [func, obj] = entry.reduce(([api], key) => [api && (api as any)[key], api], [mod, null]) as any,
         ctx = { func, obj, args, req, emitter, evt },
@@ -71,23 +72,23 @@ export async function pip(res: string, emitter: Emitter,
         modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) {
     emitter.emit(res, { })
     try {
-        const [json, ...files] = await emitter.next(res) as any[],
-            ctx = makeContext(json, files, emitter, modules, { } as any),
+        const [meta, ...files] = await emitter.next(res) as any[],
+            ctx = makeContext(meta, files, emitter, modules, { } as any),
             { evt } = ctx
         startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares, false))
         emitter.emit(res, { ret: { } })
     } catch (err: any) {
-        const { message, name } = err || { }
-        emitter.emit(res, { err: { ...err, message, name } })
+        const { message, name, stack } = err || { }
+        emitter.emit(res, { err: { ...err, message, name, stack } })
     }
 }
 
 export async function rpc(req: Request, res: Response, emitter: Emitter,
         modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) {
     try {
-        const json = req.body.json,
-            files = Object.values(req.files) || [],
-            ctx = makeContext(json, files, emitter, modules, req),
+        const meta = req.headers['content-type'] === 'application/json' ? req.body : JSON.parse(req.body.meta),
+            files = Object.values(req.files || { }),
+            ctx = makeContext(meta, files, emitter, modules, req),
             { evt } = ctx
         if (evt) {
             if (process.env.SN_USE_REMOTE_FORK) {
@@ -99,11 +100,16 @@ export async function rpc(req: Request, res: Response, emitter: Emitter,
                 res.send({ evt, ret: { } })
             }
         } else {
-            const ret = await callWithMiddlewares(ctx, middlewares, true)
-            res.send({ ret })
+            const { meta, blobs } = form.encode(await callWithMiddlewares(ctx, middlewares, true))
+            if (blobs.length === 1 && meta.__buf === 0) {
+                res.setHeader('Content-Type', 'application/octet-stream')
+                res.send(Buffer.from(blobs[0]))
+            } else {
+                res.send({ meta, blobs: blobs.map(blob => Array.from(blob)) })
+            }
         }
     } catch (err: any) {
-        const { message, name } = err || { }
-        res.send({ err: { ...err, message, name } })
+        const { message, name, stack } = err || { }
+        res.send({ err: { ...err, message, name, stack } })
     }
 }

@@ -39,14 +39,14 @@ function lazy(context: any, opts: any) {
                 <VueWrapper route={ props } history={ history } component={ result.default } /> :
                 <div>unknown component fetched: {JSON.stringify(result)}</div>
         } else {
-            (pending = context() as Promise<any>)
-                .then(ret => { pending = null; result = ret })
-                .catch(err => { pending = null; error = err })
+            (pending = context() as Promise<any>).then(
+                ret => { pending = null; result = ret },
+                err => { pending = null; error = err })
             throw pending
         }
     }
     return (props: any) => {
-        return <Suspense fallback={ opts.loading || '..' }>
+        return <Suspense fallback={ opts.loading || '...' }>
             <Lazy { ...props } />
         </Suspense>
     }

@@ -7,6 +7,7 @@ import express, { Request, Response } from 'express'
 import mkdirp from 'mkdirp'
 import program from 'commander'
 import multer from 'multer'
+import compression from 'compression'
 import { exec } from 'mz/child_process'
 import { json } from 'body-parser'
 import { Server } from 'socket.io'
@@ -95,6 +96,10 @@ const html = ({ dev }: { dev: boolean }) => `<!DOCTYPE html>
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        // polyfill for npm 'buffer'
+        window.global = window
+    </script>
     ${
         dev && `
     <script>
@@ -132,9 +137,6 @@ function isMod(mod: string) {
 }
 
 async function prepareDirectory() {
-    if (!(await fs.exists(path.join(cwd, 'tsconfig.json')))) {
-        await fs.copyFile(path.join(__dirname, '..', 'tsconfig.json'), path.join(cwd, 'tsconfig.json'))
-    }
     if (!(await fs.exists(path.join(options.pages, 'index.tsx')))) {
         await mkdirp(options.pages)
         await fs.copyFile(path.join(__dirname, '..', 'src', 'pages', 'index.tsx'), path.join(options.pages, 'index.tsx'))
@@ -169,6 +171,7 @@ program.action(runAsyncOrExit(async function() {
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 1024 ** 3 } })
     app.use(json())
+    app.use(compression())
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
 
@@ -273,6 +276,7 @@ program.command('start').action(runAsyncOrExit(async function() {
         upload = multer({ limits: { fileSize: 1024 ** 3 } }),
         app = express()
     app.use(json())
+    app.use(compression())
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
     app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
     app.use(express.static('dist'))
