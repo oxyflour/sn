@@ -90,14 +90,14 @@ async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
     })
 }
 
-const bootstrapPath = path.join(__dirname, '..', 'src', 'bootstrap.tsx'),
-    entryPath = './' + path.relative(process.cwd(), bootstrapPath).replace(/\\/g, '/'),
-    html = `<!DOCTYPE html>
+const html = ({ dev }: { dev: boolean }) => `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    ${
+        dev && `
     <script type="module">
         // https://vitejs.dev/guide/backend-integration.html
         import RefreshRuntime from '/@react-refresh'
@@ -109,11 +109,12 @@ const bootstrapPath = path.join(__dirname, '..', 'src', 'bootstrap.tsx'),
         window.__VITE_IS_MODERN__ = true
     </script>
     <script type="module" src="/@vite/client"></script>
+        ` || ''
+    }
     <script type="module" src="/@yff/sn/src/bootstrap.tsx"></script>
 </head>
 <body></body>
 </html>`
-entryPath
 
 async function getTsConfig() {
     const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json') || path.join(__dirname, '..', 'tsconfig.json'),
@@ -194,7 +195,7 @@ program.action(runAsyncOrExit(async function() {
         plugins: [react(), vitePlugin(options, modules)]
     })
     app.use(viteServer.middlewares)
-    app.use((_, res) => res.send(html))
+    app.use((_, res) => res.send(html({ dev: true })))
 
     const server = http.createServer(app)
     {
@@ -261,16 +262,15 @@ program.command('build').action(runAsyncOrExit(async function () {
     const tsconfig = await getTsConfig(),
         modules = getModules(options, [cwd])
     await vite.build({
-        // https://github.com/vitejs/vite/issues/712
-        esbuild: { jsxInject: 'import React from "react"' },
         plugins: [react(), vitePlugin(options, modules)]
     })
 
     const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
         emit = program.emit(),
-        diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics)
-    if (!(await fs.exists('index.html'))) {
-        await fs.writeFile('index.html', html)
+        diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics),
+        hasIndexHtml = await fs.exists('index.html')
+    if (!hasIndexHtml) {
+        await fs.writeFile('index.html', html({ dev: false }))
     }
     for (const diagnostic of diags) {
         if (diagnostic.file) {
@@ -281,7 +281,9 @@ program.command('build').action(runAsyncOrExit(async function () {
             console.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
         }
     }
-    await fs.unlink('index.html')
+    if (!hasIndexHtml) {
+        await fs.unlink('index.html')
+    }
     if (emit.emitSkipped) {
         throw Error(`tsc existed with code 1`)
     }
