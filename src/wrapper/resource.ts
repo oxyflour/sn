@@ -8,7 +8,7 @@ export type Api = { [key: string]: AsyncFunc | Api }
 type UnwarpApi<T extends Api> = { [K in keyof T]: T[K] extends AsyncFunc ? UnwarpFunc<T[K]> : T[K] extends Api ? UnwarpApi<T[K]> : unknown }
 
 export type Status = {
-    pending: Promise<any> | null
+    pending?: Promise<any> | null
     error?: any
     result?: any
 }
@@ -21,11 +21,15 @@ export default function resource<T extends Api>(api: T) {
                 item.args.length === args.length &&
                 item.args.every((arg, idx) => arg === args[idx]))
         if (!found) {
-            const pending = func(...args) as Promise<any>,
-                status = { pending } as Status
-            pending
-                .then(result => Object.assign(status, { pending: null, result }))
-                .catch(error => Object.assign(status, { pending: null, error }))
+            const status = { } as Status
+            status.pending = (async () => {
+                try {
+                    status.result = await func(...args)
+                } catch (error) {
+                    status.error = error
+                }
+                status.pending = null
+            })()
             list.push({ args, status })
             return status
         } else {

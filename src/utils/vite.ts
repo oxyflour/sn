@@ -26,7 +26,7 @@ export default function vitePlugin(
             return
         },
         load(id) {
-            if (id.startsWith('/@yff/sn/')) {
+            if (id.replace(/\\/g, '/').startsWith('/@yff/sn/')) {
                 const file = id.slice('/@yff/sn/'.length)
                 return fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8')
             }

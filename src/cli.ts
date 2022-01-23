@@ -11,7 +11,6 @@ import { exec } from 'mz/child_process'
 import { json } from 'body-parser'
 import { Server } from 'socket.io'
 
-import ts from 'typescript'
 import react from '@vitejs/plugin-react'
 import * as vite from 'vite'
 
@@ -98,6 +97,9 @@ const html = ({ dev }: { dev: boolean }) => `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     ${
         dev && `
+    <script>
+        window.__SN_DEV__ = true
+    </script>
     <script type="module">
         // https://vitejs.dev/guide/backend-integration.html
         import RefreshRuntime from '/@react-refresh'
@@ -115,15 +117,6 @@ const html = ({ dev }: { dev: boolean }) => `<!DOCTYPE html>
 </head>
 <body></body>
 </html>`
-
-async function getTsConfig() {
-    const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json') || path.join(__dirname, '..', 'tsconfig.json'),
-        { config: json, error } = ts.parseConfigFileTextToJson(configPath, await fs.readFile(configPath, 'utf8'))
-    if (error || !json) {
-        throw Error(`parse ${configPath} failed`)
-    }
-    return ts.convertCompilerOptionsFromJson(json.compilerOptions, cwd).options
-}
 
 function isMod(mod: string) {
     try {
@@ -259,34 +252,18 @@ program.command('deploy').action(runAsyncOrExit(async function() {
 }))
 
 program.command('build').action(runAsyncOrExit(async function () {
-    const tsconfig = await getTsConfig(),
-        modules = getModules(options, [cwd])
-    await vite.build({
-        plugins: [react(), vitePlugin(options, modules)]
-    })
-
-    const program = ts.createProgram([require.resolve(options.lambda)], tsconfig),
-        emit = program.emit(),
-        diags = ts.getPreEmitDiagnostics(program).concat(emit.diagnostics),
+    const modules = getModules(options, [cwd]),
         hasIndexHtml = await fs.exists('index.html')
     if (!hasIndexHtml) {
         await fs.writeFile('index.html', html({ dev: false }))
     }
-    for (const diagnostic of diags) {
-        if (diagnostic.file) {
-            let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start!)
-            let message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-            console.log(`${diagnostic.file.fileName} (${line + 1}, ${character + 1}): ${message}`)
-        } else {
-            console.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
-        }
-    }
+    await vite.build({
+        plugins: [react(), vitePlugin(options, modules)]
+    })
     if (!hasIndexHtml) {
         await fs.unlink('index.html')
     }
-    if (emit.emitSkipped) {
-        throw Error(`tsc existed with code 1`)
-    }
+    await exec('npx tsc')
 }))
 
 program.command('start').action(runAsyncOrExit(async function() {

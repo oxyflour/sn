@@ -1,6 +1,6 @@
 import 'vite/modulepreload-polyfill'
 
-import React, { useEffect, useState } from 'react'
+import React, { Suspense } from 'react'
 import ReactDOM from 'react-dom'
 import { BrowserRouter as Router, Route, Switch } from 'react-router-dom'
 import { useHistory } from 'react-router'
@@ -12,42 +12,43 @@ if (!root) {
     root = document.createElement('div')
     root.id = 'root'
     document.body.appendChild(root)
-    new EventSource('/sse/watch').addEventListener('message', evt => {
-        const data = JSON.parse(evt.data)
-        if (data.reload) {
-            location.reload()
-        }
-    })
+    if ((window as any).__SN_DEV__) {
+        new EventSource('/sse/watch').addEventListener('message', evt => {
+            const data = JSON.parse(evt.data)
+            if (data.reload) {
+                location.reload()
+            }
+        })
+    }
 }
 
 function lazy(context: any, opts: any) {
-    return function Lazy(props: any) {
-        const [status, setStatus] = useState({ loading: true, error: null, comp: null as any }),
-            history = useHistory()
-        async function load(context: any) {
-            try {
-                setStatus({ loading: false, error: null, comp: await context() })
-            } catch (err: any) {
-                setStatus({ loading: false, error: err, comp: null })
-            }
-        }
-        useEffect(() => {
-            load(context)
-            const reload = (evt: CustomEvent) => load(evt.detail)
-            document.addEventListener('hot' + context.id, reload as any)
-            return () => document.removeEventListener('hot' + context.id, reload as any)
-        }, [])
-        return status.loading ?
-                (opts.loading || <div>...</div>) :
-            status.error ?
-                (typeof opts.error === 'function' ?
-                    opts.error(status.error) :
-                    (opts.error || <div>500 { `${status.error}` }</div>)) :
-            opts.tsx || opts.js ?
-                <status.comp.default { ...props  }></status.comp.default> :
+    let error: any,
+        result: any,
+        pending: Promise<any> | null
+    function Lazy(props: any) {
+        const history = useHistory()
+        if (pending) {
+            throw pending
+        } else if (error) {
+            throw error
+        } else if (result) {
+            return opts.tsx || opts.js ?
+                <result.default { ...props  }></result.default> :
             opts.vue ?
-                <VueWrapper route={ props } history={ history } component={ status.comp.default } /> :
-                <div>unknown component fetched: {JSON.stringify(status.comp)}</div>
+                <VueWrapper route={ props } history={ history } component={ result.default } /> :
+                <div>unknown component fetched: {JSON.stringify(result)}</div>
+        } else {
+            (pending = context() as Promise<any>)
+                .then(ret => { pending = null; result = ret })
+                .catch(err => { pending = null; error = err })
+            throw pending
+        }
+    }
+    return (props: any) => {
+        return <Suspense fallback={ opts.loading || '..' }>
+            <Lazy { ...props } />
+        </Suspense>
     }
 }
 
