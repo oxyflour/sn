@@ -1,6 +1,3 @@
-import { Buffer } from "buffer"
-const { File } = globalThis
-
 export function clone(obj: any, map: (obj: any) => any): any {
     const mapped = map(obj)
     if (mapped !== obj) {
@@ -14,11 +11,14 @@ export function clone(obj: any, map: (obj: any) => any): any {
     }
 }
 
+const globalAny = globalThis as any,
+    isinstance = (cls: any, obj: any) => globalAny[cls] && obj instanceof globalAny[cls]
 export function encode(obj: any) {
     const blobs = [] as any[],
         map = (obj: any) =>
-            (File && obj instanceof File) ||
-            (obj instanceof Buffer) ?
+            isinstance('File', obj) ||
+            isinstance('Buffer', obj) ||
+            obj instanceof Uint8Array ?
                 (blobs.push(obj), { __buf: blobs.length - 1 }) :
             obj instanceof Date ?
                 { __date: obj.toString() } :

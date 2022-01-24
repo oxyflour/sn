@@ -22,7 +22,7 @@ function makeBuffer(file: Express.Multer.File) {
         file.buffer : {
             name: file.originalname,
             size: file.size,
-            arrayBuffer: () => Promise.resolve(file.buffer),
+            arrayBuffer: () => Promise.resolve(file.buffer.buffer),
         }
 }
 

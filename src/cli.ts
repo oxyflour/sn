@@ -169,7 +169,7 @@ program.action(runAsyncOrExit(async function() {
         app = express(),
         emitter = new Emitter(options.emitter),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
-        upload = multer({ limits: { fileSize: 1024 ** 3 } })
+        upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } })
     app.use(json())
     app.use(compression())
     app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
@@ -273,7 +273,7 @@ program.command('start').action(runAsyncOrExit(async function() {
     const modules = getModules(options, [cwd]),
         emitter = new Emitter(options.emitter || process.env.SN_DEPLOY_PUBSUB),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
-        upload = multer({ limits: { fileSize: 1024 ** 3 } }),
+        upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } }),
         app = express()
     app.use(json())
     app.use(compression())

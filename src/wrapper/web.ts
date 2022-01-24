@@ -1,4 +1,3 @@
-import { Buffer } from 'buffer'
 import { hookFunc } from '../utils/common'
 import form from './form'
 
@@ -26,15 +25,15 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
                 options.headers['Content-Type'] = 'application/json'
             }
             const req = await fetch(url, options)
-            if (req.headers.get('Content-Type')?.startsWith('application/json')) {
+            if (req.headers.get('Content-Type') === 'application/octet-stream') {
+                return new Uint8Array(await req.arrayBuffer())
+            } else {
                 const { err, meta, blobs } = await req.json()
                 if (err) {
                     throw Object.assign(new Error(), err)
                 } else {
-                    return form.decode({ meta, blobs: blobs.map((blob: any) => Buffer.from(blob)) })
+                    return form.decode({ meta, blobs: blobs.map((blob: any) => new Uint8Array(blob)) })
                 }
-            } else {
-                return Buffer.from(await req.arrayBuffer())
             }
         }
 
