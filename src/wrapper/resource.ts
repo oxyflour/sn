@@ -5,7 +5,12 @@ type UnwarpPromise<T> = T extends Promise<infer P> ? P : T
 type UnwarpFunc<F extends (...args: any) => Promise<any>> = (...a: Parameters<F>) => UnwarpPromise<ReturnType<F>>
 
 export type Api = { [key: string]: AsyncFunc | Api }
-type UnwarpApi<T extends Api> = { [K in keyof T]: T[K] extends AsyncFunc ? UnwarpFunc<T[K]> : T[K] extends Api ? UnwarpApi<T[K]> : unknown }
+type UnwarpApi<T extends Api> = {
+    [K in keyof T]:
+        T[K] extends AsyncFunc ? UnwarpFunc<T[K]> :
+        T[K] extends Api ? UnwarpApi<T[K]> :
+        unknown
+}
 
 export type Status = {
     pending?: Promise<any> | null
