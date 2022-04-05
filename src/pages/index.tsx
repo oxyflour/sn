@@ -7,6 +7,11 @@ import { slice, configure } from '../wrapper/redux'
 const counter = slice({ value: 0 }, {
     inc(state) {
         state.value += 1
+    },
+    test: {
+        add(state, num: number) {
+            state.value += num
+        }
     }
 })
 
@@ -14,7 +19,10 @@ const { dispatch, select, store } = configure({ counter })
 export function Counter() {
     const count = select(state => state.counter.value)
     return <div>
-        { count } <button onClick={ () => dispatch.counter.inc() }>add</button>
+        { count }
+        <button onClick={ () => dispatch.counter.inc() }>inc</button>
+        <span> </span>
+        <button onClick={ () => dispatch.counter.test.add(10) }>add 10</button>
     </div>
 }
 

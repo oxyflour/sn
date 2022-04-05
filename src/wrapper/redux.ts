@@ -17,7 +17,7 @@ type UnwarpReducerMap<S, T extends ReducerMap<S>> = {
 function flattenReducers<S>(reducers: ReducerMap<S>,
         prefix = '', out = { } as Record<string, CaseReducer<S, { payload: any; type: string; }>>) {
     for (const [sub, val] of Object.entries(reducers)) {
-        const key = prefix ? prefix + '.' + sub : sub
+        const key = prefix ? prefix + '/' + sub : sub
         if (typeof val === 'function') {
             out[key] = (state, action) => val(state, ...action.payload)
         } else {
@@ -35,12 +35,14 @@ function makeSlice<S, R extends ReducerMap<S>>(name: string,
             reducers: flattenReducers(reducers)
         }),
         dispatch = hookFunc({ }, (...stack) => {
-            const key = stack.reverse().map(item => item.propKey).join('.'),
+            const key = stack.reverse().map(item => item.propKey).join('/'),
                 action = slice.actions[key]
-            if (!action) {
-                throw Error(`the reducer ${key} is not found`)
+            return (...args: any[]) => {
+                if (!action) {
+                    throw Error(`the reducer ${key} is not found`)
+                }
+                disp(action(args))
             }
-            return (...args: any[]) => disp(action(args))
         }) as UnwarpReducerMap<S, R>
     return { dispatch, slice }
 }
