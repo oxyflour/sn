@@ -31,9 +31,14 @@ export function getHotMod(path: string) {
     }
     const reload = debounce(() => {
         walkMod(file, ({ filename }) => delete require.cache[filename])
-        ret.mod = require(path).default
-        walkMod(file, ({ filename }) => watch(filename))
-        evt.emit('reload')
+        try {
+            ret.mod = require(path).default
+            walkMod(file, ({ filename }) => watch(filename))
+            evt.emit('reload')
+        } catch (err) {
+            console.error(err)
+            console.warn(`reload module ${path} failed`)
+        }
     }, 100)
     walkMod(file, ({ filename }) => watch(filename))
     return ret
