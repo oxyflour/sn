@@ -8,7 +8,7 @@ Object.defineProperty(Vue.prototype, '$router', {
     }
 })
 
-function makeLink(history: any) {
+function makeLink(navigate: any) {
     return {
         props: ['to'],
         render(createElement) {
@@ -16,7 +16,7 @@ function makeLink(history: any) {
                 on: {
                     click: (evt: MouseEvent) => {
                         evt.preventDefault()
-                        history.push(this.$props.to)
+                        navigate(this.$props.to)
                     }
                 },
                 attrs: {
@@ -27,15 +27,15 @@ function makeLink(history: any) {
     } as ThisTypedComponentOptionsWithArrayProps<Vue, any, any, any, any>
 }
 
-export default class Wrapper extends Component<{ route: any, component: any, history: any }> {
+export default class Wrapper extends Component<{ route: any, component: any, navigate: any }> {
     ref = null as HTMLDivElement | null
     vue = null as Vue | null
     componentDidMount() {
         if (this.ref && !this.vue) {
             const comp = 'vue-comp-' + Math.random().toString(16).slice(2, 10),
                 el = document.createElement('div'),
-                { history, component, route } = this.props,
-                components = Object.assign({ }, component.components, { Link: makeLink(history) })
+                { navigate, component, route } = this.props,
+                components = Object.assign({ }, component.components, { Link: makeLink(navigate) })
             this.ref.appendChild(el)
             this.vue = new Vue({
                 el,

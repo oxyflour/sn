@@ -3,6 +3,7 @@ import { Provider } from 'react-redux'
 import lambda from '../lambda'
 import resource from '../wrapper/resource'
 import { slice, configure } from '../wrapper/redux'
+import { RouteMatch } from 'react-router-dom'
 
 const counter = slice({ value: 0 }, {
     inc(state) {
@@ -35,7 +36,8 @@ export function Message() {
     </div>
 }
 
-export default function Root() {
+export default function Root({ params }: RouteMatch<'id'>) {
+    console.log(params)
     return <Provider store={ store }>
         <Counter />
         <Message />
