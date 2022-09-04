@@ -1,11 +1,13 @@
 import getArgumentNames from 'function-arguments'
-import { Request, Response } from 'express'
+import multer from '@koa/multer'
+import { IncomingMessage, ServerResponse } from 'http'
+import { Context as KoaContext } from 'koa'
 
 import Emitter from '../utils/emitter'
 import form from './form'
 import { cluster } from '../utils/kube'
 
-export type Context = { func: Function, obj: any, args: any[], req?: Request, emitter: Emitter }
+export type Context = { func: Function, obj: any, args: any[], req?: IncomingMessage, res?: ServerResponse, emitter: Emitter }
 export type Middleware = (ctx: Context, next: Function) => any
 
 async function callWithMiddlewares(ctx: Context, [first, ...rest]: Middleware[], thenable: boolean) {
@@ -17,7 +19,7 @@ async function callWithMiddlewares(ctx: Context, [first, ...rest]: Middleware[],
     }
 }
 
-function makeBuffer(file: Express.Multer.File) {
+function makeBuffer(file: multer.File) {
     return file.originalname.startsWith('__blob_') ?
         file.buffer : {
             name: file.originalname,
@@ -39,26 +41,26 @@ async function startLocal(emitter: Emitter, evt: string, iter: any) {
 }
 
 async function forkRemote(emitter: Emitter, evt: string,
-        req: Request, namespace: string, image: string) {
+        koa: KoaContext, namespace: string, image: string) {
     const res = Math.random().toString(16).slice(2, 10),
         name = 'pip-' + evt,
         command = ['node', 'node_modules/.bin/sn', 'pip', res],
         env = { SN_DEPLOY_PUBSUB: process.env.SN_DEPLOY_PUBSUB || '' }
     await cluster.fork({ name, namespace, image, command, env })
     await emitter.next(res)
-    const meta = req.body.meta,
-        blobs = Object.values(req.files || []).map(file => ({ ...file }))
+    const meta = (koa.body as any).meta,
+        blobs = Object.values(koa.files || []).map(file => ({ ...file }))
     emitter.emit(res, [meta, ...blobs])
     return await emitter.next(res)
 }
 
 function makeContext(meta: any, files: any[], emitter: Emitter,
-        modules: { [prefix: string]: { mod: any } }, req?: Request) {
+        modules: { [prefix: string]: { mod: any } }, req?: IncomingMessage, res?: ServerResponse) {
     const blobs = Object.values(files).map(makeBuffer),
         { entry, args, evt, prefix } = form.decode({ meta, blobs }) as { entry: string[], args: any[], evt: string, prefix: string },
         mod = modules[prefix]?.mod,
         [func, obj] = entry.reduce(([api], key) => [api && (api as any)[key], api], [mod, null]) as any,
-        ctx = { func, obj, args, req, emitter, evt },
+        ctx = { func, obj, args, req, res, emitter, evt },
         argNames = func && (func.__argnames || (func.__argnames = getArgumentNames(func))) || []
     for (const [idx, name] of argNames.entries()) {
         if (name === '$ctx') {
@@ -83,33 +85,34 @@ export async function pip(res: string, emitter: Emitter,
     }
 }
 
-export async function rpc(req: Request, res: Response, emitter: Emitter,
+export async function rpc(koa: KoaContext, emitter: Emitter,
         modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) {
     try {
-        const meta = req.headers['content-type'] === 'application/json' ? req.body : JSON.parse(req.body.meta),
-            files = Object.values(req.files || { }),
-            ctx = makeContext(meta, files, emitter, modules, req),
+        const meta = koa.req.headers['content-type'] === 'application/json' ?
+                koa.request.body : JSON.parse((koa.request.body as any).meta),
+            files = Object.values(koa.files || { }),
+            ctx = makeContext(meta, files, emitter, modules, koa.req, koa.res),
             { evt } = ctx
         if (evt) {
             if (process.env.SN_USE_REMOTE_FORK) {
                 const { namespace, image } = JSON.parse(process.env.SN_DEPLOY_OPTIONS || '{}'),
-                    ret = await forkRemote(emitter, evt, req, namespace, image)
-                res.send({ evt, ret })
+                    ret = await forkRemote(emitter, evt, koa, namespace, image)
+                koa.body = { evt, ret }
             } else {
                 startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares, false))
-                res.send({ evt, ret: { } })
+                koa.body = { evt, ret: { } }
             }
         } else {
             const { meta, blobs } = form.encode(await callWithMiddlewares(ctx, middlewares, true))
             if (blobs.length === 1 && meta.__buf === 0) {
-                res.setHeader('Content-Type', 'application/octet-stream')
-                res.send(Buffer.from(blobs[0]))
+                koa.res.setHeader('Content-Type', 'application/octet-stream')
+                koa.body = Buffer.from(blobs[0])
             } else {
-                res.send({ meta, blobs: blobs.map(blob => Array.from(blob)) })
+                koa.body = { meta, blobs: blobs.map(blob => Array.from(blob)) }
             }
         }
     } catch (err: any) {
         const { message, name, stack } = err || { }
-        res.send({ err: { ...err, message, name, stack } })
+        koa.body = { err: { ...err, message, name, stack } }
     }
 }

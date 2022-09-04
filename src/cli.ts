@@ -3,23 +3,26 @@
 import fs from 'mz/fs'
 import path from 'path'
 import http from 'http'
-import express, { Request, Response } from 'express'
+import koa, { Context } from 'koa'
 import mkdirp from 'mkdirp'
 import program from 'commander'
-import multer from 'multer'
-import compression from 'compression'
+import parser from 'koa-bodyparser'
+import connect from 'koa-connect'
+import serve from 'koa-static'
+import route from '@koa/router'
+import multer from '@koa/multer'
 import { exec } from 'mz/child_process'
-import { json } from 'body-parser'
 import { Server } from 'socket.io'
+import { PassThrough } from 'stream'
 
 import react from '@vitejs/plugin-react'
 import * as vite from 'vite'
 
 import vitePlugin from './utils/vite'
-import { pip, rpc } from './wrapper/express'
+import Emitter from './utils/emitter'
+import { pip, rpc } from './wrapper/koa'
 import { getHotMod, getMiddlewares, getModules } from './utils/module'
 import { cluster, kaniko } from './utils/kube'
-import Emitter from './utils/emitter'
 
 const cwd = process.cwd(),
     { name, version } = require(path.join(__dirname, '..', 'package.json'))
@@ -65,26 +68,30 @@ if (fs.existsSync(path.join(cwd, 'package.json'))) {
     Object.assign(options, sn)
 }
 
-async function sse(req: Request, res: Response, emitter: Emitter, retry = 0) {
-    res.writeHead(200, {
+async function sse(ctx: Context, emitter: Emitter, retry = 0) {
+    ctx.req.socket.setTimeout(0)
+    ctx.req.socket.setNoDelay(true)
+    ctx.req.socket.setKeepAlive(true)
+    ctx.set({
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*'
     })
-    const evt = req.params.evt + ''
+    const stream = ctx.body = new PassThrough(),
+        evt = ctx.params.evt + ''
     if (retry) {
-        res.write(`retry: ${retry}\n\n`)
+        stream.write(`retry: ${retry}\n\n`)
     }
     function send(data: any) {
-        res.write(`data: ${JSON.stringify(data)}\n\n`)
+        stream.write(`data: ${JSON.stringify(data)}\n\n`)
         if (data.done) {
-            res.end()
+            stream.end()
         }
     }
     emitter.emit(`sse.open.${evt}`, { })
     emitter.on(evt, send)
-    res.on('close', () => {
+    ctx.res.on('close', () => {
         emitter.off(evt, send)
         emitter.emit(`sse.close.${evt}`, { })
     })
@@ -151,6 +158,7 @@ async function prepareDirectory() {
         'react-router-dom',
     ].filter(mod => !isMod(mod))
     if (deps.length) {
+        console.log(`PREPARE: npm i -S ${deps.join(' ')}`)
         await exec(`npm i -S ${deps.join(' ')}`)
     }
     const devDeps = [
@@ -159,6 +167,7 @@ async function prepareDirectory() {
         '@types/react-router-dom',
     ].filter(mod => !fs.existsSync(path.join(cwd, 'node_modules', mod)))
     if (devDeps.length) {
+        console.log(`PREPARE: npm i -D ${devDeps.join(' ')}`)
         await exec(`npm i -D ${devDeps.join(' ')}`)
     }
 }
@@ -166,14 +175,13 @@ async function prepareDirectory() {
 program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
     const modules = getModules(options, [cwd]),
-        app = express(),
+        router = new route(),
+        app = new koa(),
         emitter = new Emitter(options.emitter),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } })
-    app.use(json())
-    app.use(compression())
-    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
-    app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
+    router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
+    router.get('/sse/:evt', ctx => sse(ctx, emitter))
 
     const hot = getHotMod(options.lambda)
     Object.defineProperty(modules[''], 'mod', {
@@ -190,10 +198,13 @@ program.action(runAsyncOrExit(async function() {
         server: { port: parseInt(options.port), middlewareMode: true },
         plugins: [react(), vitePlugin(options, modules)]
     })
-    app.use(viteServer.middlewares)
-    app.use((_, res) => res.send(html({ dev: true })))
+    app.use(connect(viteServer.middlewares))
+    app.use(parser())
+    app.use(router.routes())
+    app.use(router.allowedMethods())
+    app.use(ctx => ctx.body = html({ dev: true }))
 
-    const server = http.createServer(app)
+    const server = http.createServer(app.callback())
     {
         const io = new Server(server)
         io.on('connect', ws => {
@@ -274,15 +285,18 @@ program.command('start').action(runAsyncOrExit(async function() {
         emitter = new Emitter(options.emitter || process.env.SN_DEPLOY_PUBSUB),
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } }),
-        app = express()
-    app.use(json())
-    app.use(compression())
-    app.post('/rpc/*', upload.any(), (req, res) => rpc(req, res, emitter, modules, middlewares))
-    app.get('/sse/:evt', (req, res) => sse(req, res, emitter))
-    app.use(express.static('dist'))
-    app.use((_, res) => res.sendFile(path.join(__dirname, 'index.html')))
+        router = new route(),
+        app = new koa()
+    router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
+    router.get('/sse/:evt', ctx => sse(ctx, emitter))
 
-    const server = http.createServer(app)
+    app.use(parser())
+    app.use(router.routes())
+    app.use(router.allowedMethods())
+    app.use(serve('dist'))
+    app.use(ctx => ctx.res.end(html({ dev: false })))
+
+    const server = http.createServer(app.callback())
     if (process.env.SN_SERVE_PUBSUB) {
         const io = new Server(server)
         io.on('connect', ws => {
