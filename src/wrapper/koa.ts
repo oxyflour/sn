@@ -24,7 +24,7 @@ function makeBuffer(file: multer.File) {
         file.buffer : {
             name: file.originalname,
             size: file.size,
-            arrayBuffer: () => Promise.resolve(file.buffer.buffer),
+            arrayBuffer: () => Promise.resolve(file.buffer),
         }
 }
 
