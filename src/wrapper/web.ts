@@ -28,7 +28,7 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
             if (req.headers.get('Content-Type') === 'application/octet-stream') {
                 return new Uint8Array(await req.arrayBuffer())
             } else {
-                const { err, meta, blobs } = await req.json()
+                const { err, meta, blobs = [] } = await req.json()
                 if (err) {
                     throw Object.assign(new Error(), err)
                 } else {

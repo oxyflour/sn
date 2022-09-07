@@ -89,7 +89,7 @@ export async function rpc(koa: KoaContext, emitter: Emitter,
         modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) {
     try {
         const meta = koa.req.headers['content-type'] === 'application/json' ?
-                koa.request.body : JSON.parse((koa.request.body as any).meta),
+                koa.request.body : JSON.parse(koa.request.body.meta),
             files = Object.values(koa.files || { }),
             ctx = makeContext(meta, files, emitter, modules, koa.req, koa.res),
             { evt } = ctx
