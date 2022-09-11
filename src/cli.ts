@@ -145,7 +145,7 @@ function isMod(mod: string) {
 
 async function isTsMod(mod: string) {
     try {
-        await exec(`npx ts-node 'require("${mod}")'`)
+        await exec(`npx ts-node -e 'require("${mod}")'`)
         return true
     } catch (err) {
         return false
