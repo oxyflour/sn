@@ -143,6 +143,15 @@ function isMod(mod: string) {
     }
 }
 
+async function isTsMod(mod: string) {
+    try {
+        await exec(`npx ts-node 'require("${mod}")'`)
+        return true
+    } catch (err) {
+        return false
+    }
+}
+
 async function prepareDirectory() {
     if (!(await fs.exists(path.join(options.pages, 'index.tsx')))) {
         await mkdirp(options.pages)
@@ -161,18 +170,19 @@ async function prepareDirectory() {
         console.log(`PREPARE: npm i -S ${deps.join(' ')}`)
         await exec(`npm i -S ${deps.join(' ')}`)
     }
-    if (require(path.join(cwd, 'packages.json')).workspaces) {
-        console.warn(`WARN: we are not installing @types/* for npm workspaces`)
-    } else {
-        const devDeps = [
-            '@types/react',
-            '@types/node',
-            '@types/react-router-dom',
-        ].filter(mod => !fs.existsSync(path.join(cwd, 'node_modules', mod)))
-        if (devDeps.length) {
-            console.log(`PREPARE: npm i -D ${devDeps.join(' ')}`)
-            await exec(`npm i -D ${devDeps.join(' ')}`)
+    const devDeps = [] as string[]
+    for (const mod of [
+        '@types/react',
+        '@types/node',
+        '@types/react-router-dom',
+    ]) {
+        if (!(await isTsMod(mod))) {
+            devDeps.push(mod)
         }
+    }
+    if (devDeps.length) {
+        console.log(`PREPARE: npm i -D ${devDeps.join(' ')}`)
+        await exec(`npm i -D ${devDeps.join(' ')}`)
     }
 }
 
