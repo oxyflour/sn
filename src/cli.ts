@@ -161,14 +161,18 @@ async function prepareDirectory() {
         console.log(`PREPARE: npm i -S ${deps.join(' ')}`)
         await exec(`npm i -S ${deps.join(' ')}`)
     }
-    const devDeps = [
-        '@types/react',
-        '@types/node',
-        '@types/react-router-dom',
-    ].filter(mod => !fs.existsSync(path.join(cwd, 'node_modules', mod)))
-    if (devDeps.length) {
-        console.log(`PREPARE: npm i -D ${devDeps.join(' ')}`)
-        await exec(`npm i -D ${devDeps.join(' ')}`)
+    if (require(path.join(cwd, 'packages.json')).workspaces) {
+        console.warn(`WARN: we are not installing @types/* for npm workspaces`)
+    } else {
+        const devDeps = [
+            '@types/react',
+            '@types/node',
+            '@types/react-router-dom',
+        ].filter(mod => !fs.existsSync(path.join(cwd, 'node_modules', mod)))
+        if (devDeps.length) {
+            console.log(`PREPARE: npm i -D ${devDeps.join(' ')}`)
+            await exec(`npm i -D ${devDeps.join(' ')}`)
+        }
     }
 }
 
