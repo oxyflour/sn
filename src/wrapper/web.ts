@@ -1,5 +1,5 @@
 import { hookFunc } from '../utils/common'
-import io from 'socket.io-client/build/esm'
+import io from 'socket.io-client'
 import form from './form'
 
 const ws = io({ transports: ['websocket'] })
