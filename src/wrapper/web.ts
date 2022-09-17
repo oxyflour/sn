@@ -1,5 +1,11 @@
 import { hookFunc } from '../utils/common'
+import io from 'socket.io-client'
 import form from './form'
+
+const ws = io({ transports: ['websocket'] })
+if ((window as any).__SN_DEV__) {
+    ws.emit('join', 'watch')
+}
 
 export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
     url?: string
@@ -39,24 +45,23 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
 
         const queue = [] as any[],
             callbacks = [] as Function[]
-        let sse = null as null | EventSource
+        let started = false
         const next = async () => {
-            if (!sse) {
+            if (!started && (started = true)) {
                 const evt = Math.random().toString(16).slice(2, 10)
-                sse = new EventSource(`${url}/sse/${evt}`)
-                sse.onmessage = evt => {
-                    const data = JSON.parse(evt.data),
-                        func = callbacks.shift()
+                await new Promise(resolve => ws.emit('join', evt, resolve))
+                ws.on(evt, function process(data: any) {
+                    const func = callbacks.shift()
                     func ? func(data) : queue.push(data)
-                    if (data.done && sse) {
-                        sse.close()
-                        sse.onmessage = null
+                    if (data.done) {
+                        ws.emit('leave', evt)
+                        ws.off(evt, process)
                     }
-                }
+                })
                 const target = Object.assign(new URL(location.href), { pathname: `/pip/${evt}` })
                 await post(`${url}/rpc/${part}`, { evt, url: target.toString() })
             }
-            const data = queue.unshift() || await new Promise(func => callbacks.push(func)) as any
+            const data = queue.shift() || await new Promise(func => callbacks.push(func)) as any
             if (data.err) {
                 throw Object.assign(new Error(), data.err)
             }

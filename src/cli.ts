@@ -3,7 +3,7 @@
 import fs from 'mz/fs'
 import path from 'path'
 import http from 'http'
-import koa, { Context } from 'koa'
+import koa from 'koa'
 import mkdirp from 'mkdirp'
 import program from 'commander'
 import parser from 'koa-bodyparser'
@@ -13,7 +13,6 @@ import route from '@koa/router'
 import multer from '@koa/multer'
 import { exec } from 'mz/child_process'
 import { Server } from 'socket.io'
-import { PassThrough } from 'stream'
 
 import react from '@vitejs/plugin-react'
 import * as vite from 'vite'
@@ -45,6 +44,13 @@ const options = {
     middlewares: [ ] as string[],
     port: '8080',
     emitter: '',
+    https: undefined as undefined | {
+        key: string | Buffer
+        cert: string | Buffer
+    },
+    koa: {
+        middlewares: [] as string[],
+    },
     deploy: {
         namespace: 'default',
         registry: 'pc10.yff.me',
@@ -66,35 +72,6 @@ const options = {
 if (fs.existsSync(path.join(cwd, 'package.json'))) {
     const { sn } = require(path.join(cwd, 'package.json'))
     Object.assign(options, sn)
-}
-
-async function sse(ctx: Context, emitter: Emitter, retry = 0) {
-    ctx.req.socket.setTimeout(0)
-    ctx.req.socket.setNoDelay(true)
-    ctx.req.socket.setKeepAlive(true)
-    ctx.set({
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
-    })
-    const stream = ctx.body = new PassThrough(),
-        evt = ctx.params.evt + ''
-    if (retry) {
-        stream.write(`retry: ${retry}\n\n`)
-    }
-    function send(data: any) {
-        stream.write(`data: ${JSON.stringify(data)}\n\n`)
-        if (data.done) {
-            stream.end()
-        }
-    }
-    emitter.emit(`sse.open.${evt}`, { })
-    emitter.on(evt, send)
-    ctx.res.on('close', () => {
-        emitter.off(evt, send)
-        emitter.emit(`sse.close.${evt}`, { })
-    })
 }
 
 const html = ({ dev }: { dev: boolean }) => `<!DOCTYPE html>
@@ -195,7 +172,6 @@ program.action(runAsyncOrExit(async function() {
         middlewares = getMiddlewares(options.middlewares, [cwd]),
         upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } })
     router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
-    router.get('/sse/:evt', ctx => sse(ctx, emitter))
 
     const hot = getHotMod(options.lambda)
     Object.defineProperty(modules[''], 'mod', {
@@ -218,15 +194,15 @@ program.action(runAsyncOrExit(async function() {
     app.use(router.allowedMethods())
     app.use(ctx => ctx.body = html({ dev: true }))
 
-    const server = http.createServer(app.callback())
-    {
-        const io = new Server(server)
-        io.on('connect', ws => {
-            ws.on('join', evt => ws.join(evt))
-            ws.on('leave', evt => ws.leave(evt))
-            ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
-        })
-    }
+    const server = http.createServer(app.callback()),
+        io = new Server(server)
+    io.on('connect', ws => {
+        const cbs = { } as Record<string, (data: any) => any>,
+            func = (evt: string) => cbs[evt] || (cbs[evt] = data => ws.emit(evt, data))
+        ws.on('join',  (evt, cb) => (emitter.on(evt, func(evt)), cb?.()))
+        ws.on('leave', (evt, cb) => (emitter.off(evt, func(evt)), cb?.()))
+        ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
+    })
 
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
@@ -302,7 +278,6 @@ program.command('start').action(runAsyncOrExit(async function() {
         router = new route(),
         app = new koa()
     router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
-    router.get('/sse/:evt', ctx => sse(ctx, emitter))
 
     app.use(parser())
     app.use(router.routes())
@@ -310,15 +285,15 @@ program.command('start').action(runAsyncOrExit(async function() {
     app.use(serve('dist'))
     app.use(ctx => ctx.res.end(html({ dev: false })))
 
-    const server = http.createServer(app.callback())
-    if (process.env.SN_SERVE_PUBSUB) {
-        const io = new Server(server)
-        io.on('connect', ws => {
-            ws.on('join', evt => ws.join(evt))
-            ws.on('leave', evt => ws.leave(evt))
-            ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
-        })
-    }
+    const server = http.createServer(app.callback()),
+        io = new Server(server)
+    io.on('connect', ws => {
+        const cbs = { } as Record<string, (data: any) => any>,
+            func = (evt: string) => cbs[evt] || (cbs[evt] = data => ws.emit(evt, data))
+        ws.on('join',  (evt, cb) => (emitter.on(evt, func(evt)), cb?.()))
+        ws.on('leave', (evt, cb) => (emitter.off(evt, func(evt)), cb?.()))
+        ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
+    })
 
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)

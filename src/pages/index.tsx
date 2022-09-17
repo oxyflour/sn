@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Provider } from 'react-redux'
 import lambda from '../lambda'
 import resource from '../wrapper/resource'
@@ -27,7 +27,7 @@ export function Counter() {
     </div>
 }
 
-const res = resource(lambda),
+const res = resource(lambda as Omit<typeof lambda, 'stream'>),
     enc = new TextDecoder()
 export function Message() {
     const buf = res.hello('KokomiMain')
@@ -36,10 +36,24 @@ export function Message() {
     </div>
 }
 
+export function Tick() {
+    const [tick, setTick] = useState(0)
+    async function start() {
+        for await (const tick of lambda.stream()) {
+            setTick(tick)
+        }
+    }
+    useEffect(() => { start() }, [])
+    return <div>
+        tick: { tick }
+    </div>
+}
+
 export default function Root({ params }: RouteMatch<'id'>) {
-    console.log(params)
+    console.log('route params', params)
     return <Provider store={ store }>
         <Counter />
         <Message />
+        <Tick />
     </Provider>
 }

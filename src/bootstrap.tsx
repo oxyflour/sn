@@ -11,14 +11,6 @@ if (!div) {
     div = document.createElement('div')
     div.id = 'root'
     document.body.appendChild(div)
-    if ((window as any).__SN_DEV__) {
-        new EventSource('/sse/watch').addEventListener('message', evt => {
-            const data = JSON.parse(evt.data)
-            if (data.reload) {
-                location.reload()
-            }
-        })
-    }
 }
 
 function lazy(context: any, opts: any) {

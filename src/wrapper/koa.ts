@@ -10,12 +10,12 @@ import { cluster } from '../utils/kube'
 export type Context = { func: Function, obj: any, args: any[], req?: IncomingMessage, res?: ServerResponse, emitter: Emitter }
 export type Middleware = (ctx: Context, next: Function) => any
 
-async function callWithMiddlewares(ctx: Context, [first, ...rest]: Middleware[], thenable: boolean) {
+async function callWithMiddlewares(ctx: Context, [first, ...rest]: Middleware[], opts = { } as { thenable?: boolean }) {
     if (first) {
-        return await first(ctx, () => callWithMiddlewares(ctx, rest, thenable))
+        return await first(ctx, () => callWithMiddlewares(ctx, rest, opts))
     } else {
         const res = ctx.func.apply(ctx.obj, ctx.args)
-        return thenable ? await res : res
+        return opts.thenable ? await res : res
     }
 }
 
@@ -77,7 +77,7 @@ export async function pip(res: string, emitter: Emitter,
         const [meta, ...files] = await emitter.next(res) as any[],
             ctx = makeContext(meta, files, emitter, modules, { } as any),
             { evt } = ctx
-        startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares, false))
+        startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares))
         emitter.emit(res, { ret: { } })
     } catch (err: any) {
         const { message, name, stack } = err || { }
@@ -99,11 +99,11 @@ export async function rpc(koa: KoaContext, emitter: Emitter,
                     ret = await forkRemote(emitter, evt, koa, namespace, image)
                 koa.body = { evt, ret }
             } else {
-                startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares, false))
+                startLocal(emitter, evt, await callWithMiddlewares(ctx, middlewares))
                 koa.body = { evt, ret: { } }
             }
         } else {
-            const { meta, blobs } = form.encode(await callWithMiddlewares(ctx, middlewares, true))
+            const { meta, blobs } = form.encode(await callWithMiddlewares(ctx, middlewares, { thenable: true }))
             if (blobs.length === 1 && meta.__buf === 0) {
                 koa.res.setHeader('Content-Type', 'application/octet-stream')
                 koa.body = Buffer.from(blobs[0])
