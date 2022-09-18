@@ -186,7 +186,8 @@ program.action(runAsyncOrExit(async function() {
 
     const viteServer = await vite.createServer({
         server: { port: parseInt(options.port), middlewareMode: true },
-        plugins: [react(), vitePlugin(options, modules)]
+        plugins: [react(), vitePlugin(options, modules)],
+        optimizeDeps: { include: ['socket.io-client'] }
     })
     app.use(connect(viteServer.middlewares))
     app.use(parser())
@@ -262,7 +263,8 @@ program.command('build').action(runAsyncOrExit(async function () {
         await fs.writeFile('index.html', html({ dev: false }))
     }
     await vite.build({
-        plugins: [react(), vitePlugin(options, modules)]
+        plugins: [react(), vitePlugin(options, modules)],
+        optimizeDeps: { include: ['socket.io-client'] }
     })
     if (!hasIndexHtml) {
         await fs.unlink('index.html')
