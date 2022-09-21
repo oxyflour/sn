@@ -3,6 +3,7 @@
 import fs from 'mz/fs'
 import path from 'path'
 import http from 'http'
+import http2 from 'http2'
 import koa from 'koa'
 import mkdirp from 'mkdirp'
 import program from 'commander'
@@ -44,7 +45,7 @@ const options = {
     middlewares: [ ] as string[],
     port: '8080',
     emitter: '',
-    https: undefined as undefined | {
+    http2: undefined as undefined | {
         key: string | Buffer
         cert: string | Buffer
     },
@@ -71,6 +72,10 @@ const options = {
 }
 if (fs.existsSync(path.join(cwd, 'package.json'))) {
     const { sn } = require(path.join(cwd, 'package.json'))
+    Object.assign(options, sn)
+}
+if (fs.existsSync(path.join(cwd, 'sn.config.js'))) {
+    const { sn } = require(path.join(cwd, 'sn.config.js'))
     Object.assign(options, sn)
 }
 
@@ -163,6 +168,17 @@ async function prepareDirectory() {
     }
 }
 
+function createServer(app: koa) {
+    const { key, cert } = options.http2 || { }
+    return options.http2 ?
+        http2.createSecureServer({
+            ...options.http2,
+            key:  typeof key  === 'string' ? fs.readFileSync(key)  : key,
+            cert: typeof cert === 'string' ? fs.readFileSync(cert) : cert,
+        }, app.callback()) :
+        http.createServer(app.callback())
+}
+
 program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
     const modules = getModules(options, [cwd]),
@@ -195,8 +211,8 @@ program.action(runAsyncOrExit(async function() {
     app.use(router.allowedMethods())
     app.use(ctx => ctx.body = html({ dev: true }))
 
-    const server = http.createServer(app.callback()),
-        io = new Server(server)
+    const server = createServer(app),
+        io = new Server(server as any)
     io.on('connect', ws => {
         const cbs = { } as Record<string, (data: any) => any>,
             func = (evt: string) => cbs[evt] || (cbs[evt] = data => ws.emit(evt, data))
@@ -287,8 +303,8 @@ program.command('start').action(runAsyncOrExit(async function() {
     app.use(serve('dist'))
     app.use(ctx => ctx.res.end(html({ dev: false })))
 
-    const server = http.createServer(app.callback()),
-        io = new Server(server)
+    const server = createServer(app),
+        io = new Server(server as any)
     io.on('connect', ws => {
         const cbs = { } as Record<string, (data: any) => any>,
             func = (evt: string) => cbs[evt] || (cbs[evt] = data => ws.emit(evt, data))
