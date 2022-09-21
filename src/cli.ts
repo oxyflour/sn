@@ -205,6 +205,9 @@ program.action(runAsyncOrExit(async function() {
         plugins: [react(), vitePlugin(options, modules)],
         optimizeDeps: { include: ['socket.io-client'] }
     })
+    for (const mod of options.koa.middlewares) {
+        app.use(require(require.resolve(mod, { paths: [cwd] })).default)
+    }
     app.use(connect(viteServer.middlewares))
     app.use(parser())
     app.use(router.routes())
@@ -297,6 +300,9 @@ program.command('start').action(runAsyncOrExit(async function() {
         app = new koa()
     router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
 
+    for (const mod of options.koa.middlewares) {
+        app.use(require(require.resolve(mod, { paths: [cwd] })).default)
+    }
     app.use(parser())
     app.use(router.routes())
     app.use(router.allowedMethods())

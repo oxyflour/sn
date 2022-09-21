@@ -13,7 +13,12 @@ if (!div) {
     document.body.appendChild(div)
 }
 
-function lazy(context: any, opts: any) {
+function lazy(context: any, opts: {
+    tsx: boolean
+    vue: boolean
+    js: boolean
+    loading?: JSX.Element
+}) {
     let error: any,
         result: any,
         pending: Promise<any> | null
@@ -68,8 +73,10 @@ for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONT
 const root = div.__root || (div.__root = createRoot(div))
 root.render(<Router>
 <Routes>
-    { routes.map(({ file, path, ...rest }) =>
-        <Route key={ file } path={ path } element={ <rest.comp path={ path } /> } />) }
+    {
+        routes.map(({ file, path, ...rest }) =>
+        <Route key={ file } path={ path } element={ <rest.comp path={ path } /> } />)
+    }
     <Route path="*">404</Route>
 </Routes>
 </Router>)
