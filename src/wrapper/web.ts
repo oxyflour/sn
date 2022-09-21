@@ -1,10 +1,15 @@
-import { hookFunc } from '../utils/common'
 import io from 'socket.io-client'
 import form from './form'
+import { hookFunc } from '../utils/common'
 
-const ws = io({ transports: ['websocket'] })
-if ((window as any).__SN_DEV__) {
-    ws.emit('join', 'watch')
+const conn = {
+    io: undefined as undefined | SocketIOClient.Socket,
+    get ws() {
+        return conn.io || (conn.io = io({ transports: ['websocket'] }))
+    }
+}
+if (typeof window !== 'undefined' && (window as any).__SN_DEV__) {
+    conn.ws.emit('join', 'watch')
 }
 
 export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
@@ -49,13 +54,13 @@ export default <T extends { }>({ url = '', prefix = '', opts = { } }: {
         const next = async () => {
             if (!started && (started = true)) {
                 const evt = Math.random().toString(16).slice(2, 10)
-                await new Promise(resolve => ws.emit('join', evt, resolve))
-                ws.on(evt, function process(data: any) {
+                await new Promise(resolve => conn.ws.emit('join', evt, resolve))
+                conn.ws.on(evt, function process(data: any) {
                     const func = callbacks.shift()
                     func ? func(data) : queue.push(data)
                     if (data.done) {
-                        ws.emit('leave', evt)
-                        ws.off(evt, process)
+                        conn.ws.emit('leave', evt)
+                        conn.ws.off(evt, process)
                     }
                 })
                 const target = Object.assign(new URL(location.href), { pathname: `/pip/${evt}` })
