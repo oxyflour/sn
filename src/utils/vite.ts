@@ -36,14 +36,18 @@ export default function vitePlugin(
             const module = Object.entries(modules || { })
                 .find(([, { lambda }]) => isInside(id, lambda))
             if (id === '/@yff/sn/src/bootstrap.tsx') {
-                const entries = Object.entries(modules).map(([key, { lambda }]) => {
+                const imports = [] as string[]
+                const entries = Object.entries(modules).map(([key, { lambda }], idx) => {
+                    imports.push(`import * as sn_src_pages_${idx} from '/src/pages';`)
                     return `{` +
                             `const context = import.meta.glob('/src/pages/**/*.tsx'),` +
+                                `loading = sn_src_pages_${idx}.loading,` +
+                                `layout = sn_src_pages_${idx}.layout,` +
                                 `lambda = ${JSON.stringify(lambda)};` +
-                            `ctx[${JSON.stringify('/' + key)}] = { context, lambda };` +
+                            `ctx[${JSON.stringify('/' + key)}] = { context, loading, layout, lambda };` +
                         `}`
                     }).join(';')
-                return `{ const ctx = window.SN_PAGE_CONTEXT = { }; ${entries} };` + code
+                return imports.join(';') + `{ const ctx = window.SN_PAGE_CONTEXT = { }; ${entries} };` + code
             } else if (module) {
                 const prefix = module[0]
                 return `

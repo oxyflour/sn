@@ -13,11 +13,12 @@ if (!div) {
     document.body.appendChild(div)
 }
 
-function lazy(context: any, opts: {
+function lazy(context: () => Promise<any>, opts: {
     tsx: boolean
     vue: boolean
     js: boolean
     loading?: JSX.Element
+    layout?: any
 }) {
     let error: any,
         result: any,
@@ -25,18 +26,21 @@ function lazy(context: any, opts: {
     function Lazy(props: { path: string }) {
         const navigate = useNavigate(),
             match = useMatch(props.path)
-        if (pending) {
-            throw pending
-        } else if (error) {
-            throw error
-        } else if (result) {
+        function render() {
             return opts.tsx || opts.js ?
                 <result.default { ...match }></result.default> :
             opts.vue ?
                 <VueWrapper route={ match } navigate={ navigate } component={ result.default } /> :
                 <div>unknown component fetched: {JSON.stringify(result)}</div>
+        }
+        if (pending) {
+            throw pending
+        } else if (error) {
+            throw error
+        } else if (result) {
+            return opts.layout ? <opts.layout>{ render() }</opts.layout> : render()
         } else {
-            (pending = context() as Promise<any>).then(
+            (pending = context()).then(
                 ret => { pending = null; result = ret },
                 err => { pending = null; error = err })
             throw pending
@@ -49,8 +53,13 @@ function lazy(context: any, opts: {
     }
 }
 
-const routes = [] as { file: string, path: string, comp: any }[]
-for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONTEXT || { }) as { [prefix: string]: any })) {
+const routes = [] as { file: string, path: string, comp: any }[],
+    contexes = ((window as any).SN_PAGE_CONTEXT || { }) as Record<string, {
+        context: Record<string, () => Promise<any>>
+        loading?: any
+        layout?: any
+    }>
+for (const [prefix, { context, loading, layout }] of Object.entries(contexes)) {
     const items = Object.entries(context)
             .map(([file, load]) => ({
                 file: prefix + file
@@ -65,6 +74,7 @@ for (const [prefix, { context }] of Object.entries(((window as any).SN_PAGE_CONT
                     tsx: file.endsWith('.tsx'),
                     vue: file.endsWith('.vue'),
                     js:  file.endsWith('.js'),
+                    loading, layout
                 }),
             })).sort().reverse()
     routes.push(...items)
