@@ -4,7 +4,7 @@ export function clone(obj: any, map: (obj: any) => any): any {
         return mapped
     } else if (Array.isArray(obj)) {
         return obj.map(val => clone(val, map))
-    } else if (typeof obj === null) {
+    } else if (obj === null) {
         return null
     } else if (typeof obj === 'object') {
         return Object.fromEntries(Object.entries(obj).map(([key, val]) => [key, clone(val, map)]))
