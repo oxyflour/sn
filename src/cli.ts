@@ -172,6 +172,7 @@ function createServer(app: koa) {
     const { key, cert } = options.http2 || { }
     return options.http2 ?
         http2.createSecureServer({
+            allowHTTP1: true,
             ...options.http2,
             key:  typeof key  === 'string' ? fs.readFileSync(key)  : key,
             cert: typeof cert === 'string' ? fs.readFileSync(cert) : cert,
@@ -204,7 +205,8 @@ program.action(runAsyncOrExit(async function() {
     const viteServer = await vite.createServer({
         server: {
             port: parseInt(options.port), middlewareMode: true, https: !!options.http2,
-            hmr: options.http2 ? { protocol: 'wss' } : undefined,
+            // TODO: enable http2 hmr
+            hmr: { }
         },
         plugins: [react(), vitePlugin(options, modules)],
         optimizeDeps: { include: ['socket.io-client'] }
