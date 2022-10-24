@@ -203,11 +203,7 @@ program.action(runAsyncOrExit(async function() {
     })
 
     const viteServer = await vite.createServer({
-        server: {
-            port: parseInt(options.port), middlewareMode: true, https: !!options.http2,
-            // TODO: enable http2 hmr
-            hmr: { }
-        },
+        server: { port: parseInt(options.port), middlewareMode: true, https: options.http2 },
         plugins: [react(), vitePlugin(options, modules)],
         optimizeDeps: { include: ['socket.io-client'] }
     })
