@@ -10,7 +10,7 @@ function getImportPath(dir: string, cwd: string) {
 
 export default function vitePlugin(
         options: { wrapper?: string },
-        modules: Record<string, { pages: string, lambda: string, mod: any }>) {
+        modules: Record<string, { pages: string, lambda: string, module: any }>) {
     const wrapperPath = options.wrapper &&
             require.resolve(options.wrapper, { paths: [process.cwd()] }) ||
             path.join(__dirname, '..', '..', 'src', 'wrapper', 'web')
@@ -41,21 +41,25 @@ export default function vitePlugin(
                     imports.push(`import * as sn_src_pages_${idx} from '/src/pages';`)
                     return `{` +
                             `const context = import.meta.glob('/src/pages/**/*.tsx'),` +
-                                `loading = sn_src_pages_${idx}.loading,` +
-                                `layout = sn_src_pages_${idx}.layout,` +
+                                `pages = sn_src_pages_${idx},` +
                                 `lambda = ${JSON.stringify(lambda)};` +
-                            `ctx[${JSON.stringify('/' + key)}] = { context, loading, layout, lambda };` +
+                            `ctx[${JSON.stringify('/' + key)}] = { context, pages, lambda };` +
                         `}`
                     }).join(';')
-                return imports.join(';') + `{ const ctx = window.SN_PAGE_CONTEXT = { }; ${entries} };` + code
+                return {
+                    code: imports.join(';') + `{ const ctx = window.SN_PAGE_CONTEXT = { }; ${entries} };` + code,
+                    map: null
+                }
             } else if (module) {
                 const prefix = module[0]
-                return `
-                import wrapper from ${JSON.stringify(getImportPath(wrapperPath, path.dirname(id)))}
-                export default wrapper(${JSON.stringify({ prefix })})
-                `
+                return {
+                    code: `
+                        import wrapper from ${JSON.stringify(getImportPath(wrapperPath, path.dirname(id)))}
+                        export default wrapper(${JSON.stringify({ prefix })})`,
+                    map: null
+                }
             } else {
-                return code
+                return { code, map: null }
             }
         },
     } as vite.PluginOption

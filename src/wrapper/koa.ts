@@ -55,10 +55,10 @@ async function forkRemote(emitter: Emitter, evt: string,
 }
 
 function makeContext(meta: any, files: any[], emitter: Emitter,
-        modules: { [prefix: string]: { mod: any } }, req?: IncomingMessage, res?: ServerResponse) {
+        modules: { [prefix: string]: { module: any } }, req?: IncomingMessage, res?: ServerResponse) {
     const blobs = Object.values(files).map(makeBuffer),
         { entry, args, evt, prefix } = form.decode({ meta, blobs }) as { entry: string[], args: any[], evt: string, prefix: string },
-        mod = modules[prefix]?.mod,
+        mod = modules[prefix]?.module.default,
         [func, obj] = entry.reduce(([api], key) => [api && (api as any)[key], api], [mod, null]) as any,
         ctx = { func, obj, args, req, res, emitter, evt },
         argNames = func && (func.__argnames || (func.__argnames = getArgumentNames(func))) || []
@@ -71,7 +71,7 @@ function makeContext(meta: any, files: any[], emitter: Emitter,
 }
 
 export async function pip(res: string, emitter: Emitter,
-        modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) {
+        modules: { [prefix: string]: { module: any } }, middlewares: Middleware[]) {
     emitter.emit(res, { })
     try {
         const [meta, ...files] = await emitter.next(res) as any[],
@@ -86,7 +86,7 @@ export async function pip(res: string, emitter: Emitter,
 }
 
 export async function rpc(koa: KoaContext, emitter: Emitter,
-        modules: { [prefix: string]: { mod: any } }, middlewares: Middleware[]) {
+        modules: { [prefix: string]: { module: any } }, middlewares: Middleware[]) {
     try {
         const meta = koa.req.headers['content-type'] === 'application/json' ?
                 koa.request.body : JSON.parse(koa.request.body.meta),

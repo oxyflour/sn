@@ -49,7 +49,7 @@ export function Tick() {
     </div>
 }
 
-export const loading = <div>my loading...</div>
+export const loading = () => <div>my loading...</div>
 export const layout = (props: any) => <div className="layout">{ props.children }</div>
 
 export default function Root({ params }: RouteMatch<'id'>) {

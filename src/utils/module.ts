@@ -45,14 +45,14 @@ export function getHotMod(path: string) {
 }
 
 export function getModules({ pages, lambda, include }: { pages: string, lambda: string, include: { [key: string]: string } }, paths: string[]) {
-    const modules = { } as { [key: string]: { pages: string, lambda: string, mod: any } }
-    modules[''] = { pages, lambda, mod: require(lambda).default }
+    const modules = { } as { [key: string]: { pages: string, lambda: string, module: any } }
+    modules[''] = { pages, lambda, module: require(lambda) }
     for (const [prefix, mod] of Object.entries(include)) {
         const pkg = require.resolve(mod + '/package.json', { paths }),
             { sn = { } } = require(pkg),
             pages = path.join(pkg, '..', sn.pages || 'src/pages'),
             lambda = path.join(pkg, '..', sn.lambda || 'src/lambda')
-        modules[prefix] = { pages, lambda, mod: require(lambda).default }
+        modules[prefix] = { pages, lambda, module: require(lambda) }
     }
     return modules
 }

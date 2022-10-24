@@ -17,8 +17,8 @@ function lazy(context: () => Promise<any>, opts: {
     tsx: boolean
     vue: boolean
     js: boolean
-    loading?: JSX.Element
-    layout?: any
+    loading?: Function
+    layout?: Function
 }) {
     let error: any,
         result: any,
@@ -47,7 +47,7 @@ function lazy(context: () => Promise<any>, opts: {
         }
     }
     return (props: any) => {
-        return <Suspense fallback={ opts.loading || '...' }>
+        return <Suspense fallback={ opts.loading ? <opts.loading /> : '...' }>
             <Lazy { ...props } />
         </Suspense>
     }
@@ -56,10 +56,9 @@ function lazy(context: () => Promise<any>, opts: {
 const routes = [] as { file: string, path: string, comp: any }[],
     contexes = ((window as any).SN_PAGE_CONTEXT || { }) as Record<string, {
         context: Record<string, () => Promise<any>>
-        loading?: any
-        layout?: any
+        pages: { loading?: Function, layout?: Function }
     }>
-for (const [prefix, { context, loading, layout }] of Object.entries(contexes)) {
+for (const [prefix, { context, pages }] of Object.entries(contexes)) {
     const items = Object.entries(context)
             .map(([file, load]) => ({
                 file: prefix + file
@@ -71,10 +70,10 @@ for (const [prefix, { context, loading, layout }] of Object.entries(contexes)) {
                     .split('/').slice(2).join('/')
                     .replace(/\[([^\]]+)]/g, ':$1'),
                 comp: lazy(load, {
+                    ...pages,
                     tsx: file.endsWith('.tsx'),
                     vue: file.endsWith('.vue'),
                     js:  file.endsWith('.js'),
-                    loading, layout
                 }),
             })).sort().reverse()
     routes.push(...items)

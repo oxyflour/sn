@@ -1,3 +1,12 @@
+import { Middleware } from "koa"
+
+export const koa = {
+    middlewares: [async (ctx, next) => {
+        console.log(ctx.url)
+        await next()
+    }] as Middleware[]
+}
+
 export default {
     async hello(name?: string) {
         // throw Error('x')

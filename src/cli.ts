@@ -182,15 +182,16 @@ function createServer(app: koa) {
 program.action(runAsyncOrExit(async function() {
     await prepareDirectory()
     const modules = getModules(options, [cwd]),
+        root = modules[''],
         router = new route(),
         app = new koa(),
         emitter = new Emitter(options.emitter),
-        middlewares = getMiddlewares(options.middlewares, [cwd]),
+        middlewares = getMiddlewares(options.middlewares, [cwd]).concat(root?.module.middlewares || []),
         upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } })
     router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
 
     const hot = getHotMod(options.lambda)
-    Object.defineProperty(modules[''], 'mod', {
+    Object.defineProperty(root, 'mod', {
         get() { return hot.mod }
     })
     hot.evt.on('change', file => {
@@ -201,12 +202,18 @@ program.action(runAsyncOrExit(async function() {
     })
 
     const viteServer = await vite.createServer({
-        server: { port: parseInt(options.port), middlewareMode: true },
+        server: {
+            port: parseInt(options.port), middlewareMode: true, https: !!options.http2,
+            hmr: options.http2 ? { protocol: 'wss' } : undefined,
+        },
         plugins: [react(), vitePlugin(options, modules)],
         optimizeDeps: { include: ['socket.io-client'] }
     })
     for (const mod of options.koa.middlewares) {
         app.use(require(require.resolve(mod, { paths: [cwd] })).default)
+    }
+    for (const middleware of root?.module.koa?.middlewares || []) {
+        app.use(middleware)
     }
     app.use(connect(viteServer.middlewares))
     app.use(parser())
@@ -221,6 +228,7 @@ program.action(runAsyncOrExit(async function() {
             func = (evt: string) => cbs[evt] || (cbs[evt] = data => ws.emit(evt, data))
         ws.on('join',  (evt, cb) => (emitter.on(evt, func(evt)), cb?.()))
         ws.on('leave', (evt, cb) => (emitter.off(evt, func(evt)), cb?.()))
+        ws.on('emit',  (evt, data, cb) => (emitter.emit(evt, data), cb?.()))
         ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
 
@@ -293,8 +301,9 @@ program.command('build').action(runAsyncOrExit(async function () {
 
 program.command('start').action(runAsyncOrExit(async function() {
     const modules = getModules(options, [cwd]),
+        root = modules[''],
         emitter = new Emitter(options.emitter || process.env.SN_DEPLOY_PUBSUB),
-        middlewares = getMiddlewares(options.middlewares, [cwd]),
+        middlewares = getMiddlewares(options.middlewares, [cwd]).concat(root?.module.middlewares || []),
         upload = multer({ limits: { fileSize: 10 * 1024 ** 3 } }),
         router = new route(),
         app = new koa()
@@ -303,11 +312,17 @@ program.command('start').action(runAsyncOrExit(async function() {
     for (const mod of options.koa.middlewares) {
         app.use(require(require.resolve(mod, { paths: [cwd] })).default)
     }
+    for (const middleware of root?.module.koa?.middlewares || []) {
+        app.use(middleware)
+    }
     app.use(parser())
     app.use(router.routes())
     app.use(router.allowedMethods())
     app.use(serve('dist'))
-    app.use(ctx => ctx.res.end(html({ dev: false })))
+    app.use(ctx => {
+        ctx.type = 'html'
+        ctx.body = fs.createReadStream(path.join(cwd, 'dist', 'index.html'))
+    })
 
     const server = createServer(app),
         io = new Server(server as any)
@@ -316,6 +331,7 @@ program.command('start').action(runAsyncOrExit(async function() {
             func = (evt: string) => cbs[evt] || (cbs[evt] = data => ws.emit(evt, data))
         ws.on('join',  (evt, cb) => (emitter.on(evt, func(evt)), cb?.()))
         ws.on('leave', (evt, cb) => (emitter.off(evt, func(evt)), cb?.()))
+        ws.on('emit',  (evt, data, cb) => (emitter.emit(evt, data), cb?.()))
         ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
 
