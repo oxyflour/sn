@@ -192,7 +192,7 @@ program.action(runAsyncOrExit(async function() {
     router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
 
     const hot = getHotMod(options.lambda)
-    Object.defineProperty(root, 'mod', {
+    Object.defineProperty(modules['']?.module, 'default', {
         get() { return hot.mod }
     })
     hot.evt.on('change', file => {
