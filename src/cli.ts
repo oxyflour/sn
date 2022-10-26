@@ -214,7 +214,7 @@ program.action(runAsyncOrExit(async function() {
         app.use(middleware)
     }
     app.use(connect(viteServer.middlewares))
-    app.use(parser())
+    app.use(parser({ jsonLimit: '10gb', formLimit: '10gb' }))
     app.use(router.routes())
     app.use(router.allowedMethods())
     app.use(ctx => ctx.body = html({ dev: true }))
@@ -313,7 +313,7 @@ program.command('start').action(runAsyncOrExit(async function() {
     for (const middleware of root?.module.koa?.middlewares || []) {
         app.use(middleware)
     }
-    app.use(parser())
+    app.use(parser({ jsonLimit: '10gb', formLimit: '10gb' }))
     app.use(router.routes())
     app.use(router.allowedMethods())
     app.use(serve('dist'))
