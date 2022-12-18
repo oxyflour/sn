@@ -230,6 +230,7 @@ program.action(runAsyncOrExit(async function() {
         ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
 
+    root?.module.hooks?.init?.(server)
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
@@ -333,6 +334,7 @@ program.command('start').action(runAsyncOrExit(async function() {
         ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
 
+    root?.module.hooks?.init?.(server)
     server.listen(parseInt(options.port), () => {
         console.log(`[EX] listening ${JSON.stringify(server.address())}`)
     })
