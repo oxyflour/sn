@@ -14,23 +14,22 @@ if (!div) {
 }
 
 function lazy(context: () => Promise<any>, opts: {
-    tsx: boolean
-    vue: boolean
-    js: boolean
+    file: string
     loading?: Function
     layout?: Function
 }) {
     let error: any,
         result: any,
         pending: Promise<any> | null
+    const name = opts.file.toLowerCase(),
+        isReact = !!name.match(/\.[jt]sx?$/),
+        isVue = name.endsWith('.vue')
     function Lazy(props: { path: string }) {
         const navigate = useNavigate(),
             match = useMatch(props.path)
         function render() {
-            return opts.tsx || opts.js ?
-                <result.default { ...match }></result.default> :
-            opts.vue ?
-                <VueWrapper route={ match } navigate={ navigate } component={ result.default } /> :
+            return isReact ? <result.default { ...match }></result.default> :
+                isVue ? <VueWrapper route={ match } navigate={ navigate } component={ result.default } /> :
                 <div>unknown component fetched: {JSON.stringify(result)}</div>
         }
         if (pending) {
@@ -69,12 +68,7 @@ for (const [prefix, { context, pages }] of Object.entries(contexes)) {
                     .replace(/\.(tsx|jsx|vue)$/, '')
                     .split('/').slice(2).join('/')
                     .replace(/\[([^\]]+)]/g, ':$1'),
-                comp: lazy(load, {
-                    ...pages,
-                    tsx: file.endsWith('.tsx'),
-                    vue: file.endsWith('.vue'),
-                    js:  file.endsWith('.js'),
-                }),
+                comp: lazy(load, { ...pages, file }),
             })).sort().reverse()
     routes.push(...items)
 }

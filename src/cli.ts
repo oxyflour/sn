@@ -22,7 +22,9 @@ import vitePlugin from './utils/vite'
 import Emitter from './utils/emitter'
 import { pip, rpc } from './wrapper/koa'
 import { getHotMod, getMiddlewares, getModules } from './utils/module'
-import { cluster, kaniko } from './utils/kube'
+import { cluster, kaniko, makeDockerFile } from './utils/kube'
+import { execSync, spawn } from 'child_process'
+import S3 from 'aws-sdk/clients/s3'
 
 const cwd = process.cwd(),
     { name, version } = require(path.join(__dirname, '..', 'package.json'))
@@ -35,6 +37,15 @@ function runAsyncOrExit(fn: (...args: any[]) => Promise<void>) {
             console.error(err)
             process.exit(1)
         })
+}
+
+function checkExecSync(cmd: string) {
+    try {
+        execSync(cmd)
+        return true
+    } catch (err) {
+        return false
+    }
 }
 
 const options = {
@@ -53,21 +64,13 @@ const options = {
         middlewares: [] as string[],
     },
     deploy: {
+        useDocker: checkExecSync('docker -v'),
         namespace: 'default',
         registry: 'pc10.yff.me',
-        baseImage: 'pc10.yff.me/node:14',
-        kanikoImage: 'gcr.io/kaniko-project/executor:debug',
+        baseImage: 'node:18',
         serviceType: 'ClusterIP',
-        cacheRepo: 'pc10.yff.me/kaniko/cache',
         npmConfig: undefined as any,
-        s3Config: {
-            region: 'us-east-1',
-            s3ForcePathStyle: true,
-            accessKeyId: 'minioadmin',
-            secretAccessKey: 'minioadmin',
-            endpoint: 'http://pc10.yff.me:9000',
-            bucket: 'yff',
-        },
+        s3Config: { } as S3.Types.ClientConfiguration & { bucket: string, endpoint: string }
     },
 }
 if (fs.existsSync(path.join(cwd, 'package.json'))) {
@@ -207,9 +210,6 @@ program.action(runAsyncOrExit(async function() {
         plugins: [react(), vitePlugin(options, modules)],
         optimizeDeps: { include: ['socket.io-client'] }
     })
-    for (const mod of options.koa.middlewares) {
-        app.use(require(require.resolve(mod, { paths: [cwd] })).default)
-    }
     for (const middleware of root?.module.koa?.middlewares || []) {
         app.use(middleware)
     }
@@ -242,7 +242,7 @@ program.command('remove').action(runAsyncOrExit(async function() {
 }))
 
 program.command('deploy').action(runAsyncOrExit(async function() {
-    const { npmConfig, namespace, registry, serviceType } = options.deploy
+    const { npmConfig, namespace, registry, serviceType, useDocker } = options.deploy
     if (!npmConfig) {
         console.log(`INFO: getting registry from npm config list`)
         const [stdout] = await exec(`npm config list --json`),
@@ -255,10 +255,49 @@ program.command('deploy').action(runAsyncOrExit(async function() {
         }
     }
 
-    console.log(`INFO: building in namespace ${namespace}...`)
     const { name, version } = require(path.join(cwd, 'package.json')) as { name: string, version: string },
         image = `${registry}/${name.replace(/@/g, '')}:${version}`
-    await kaniko.build({ ...options.deploy, namespace, image })
+
+    let root = cwd, workspace = ''
+    while (!(await fs.exists(path.join(root, 'package-lock.json')))) {
+        workspace = path.basename(root) + '/' + workspace
+        root = path.dirname(root)
+    }
+    if (!(await fs.exists(path.join(root, 'package-lock.json')))) {
+        throw Error(`package-lock.json is required and we cannot find it`)
+    }
+    if (workspace) {
+        console.log(`INFO: using root ${root}, workspace ${workspace}`)
+    }
+
+    if (useDocker) {
+        const dockerFilePath = path.join(root, 'Dockerfile'),
+            hasDockerFile = await fs.exists(dockerFilePath),
+            { baseImage = 'node:18', npmConfig } = options.deploy
+        if (!hasDockerFile) {
+            await fs.writeFile(dockerFilePath, await makeDockerFile(baseImage, npmConfig, workspace))
+        }
+        console.log(`INFO: building with docker...`)
+        await new Promise<void>((resolve, reject) => {
+            const cmd = `docker build . -t ${image} && docker push ${image}`,
+                proc = spawn(cmd, {
+                    shell: true,
+                    cwd: root,
+                    env: { ...process.env, DOCKER_BUILDKIT: '0', COMPOSE_DOCKER_CLI_BUILD: '0' },
+                })
+            proc.stdout.pipe(process.stdout)
+            proc.stderr.pipe(process.stderr)
+            proc.once('exit', code => {
+                code ? reject(Error(`"${cmd}" exited with code ${code}`)) : resolve()
+            })
+        })
+        if (!hasDockerFile) {
+            await fs.unlink(dockerFilePath)
+        }
+    } else {
+        console.log(`INFO: building in namespace ${namespace}...`)
+        await kaniko.build({ ...options.deploy, namespace, image, workspace, root })
+    }
 
     console.log(`INFO: deploying ${image} to namespace ${namespace}...`)
     const app = name.replace(/@/g, '').replace(/\W/g, '-'),
@@ -308,9 +347,6 @@ program.command('start').action(runAsyncOrExit(async function() {
         app = new koa()
     router.post(/^\/rpc(?:\/|$)/, upload.any(), ctx => rpc(ctx, emitter, modules, middlewares))
 
-    for (const mod of options.koa.middlewares) {
-        app.use(require(require.resolve(mod, { paths: [cwd] })).default)
-    }
     for (const middleware of root?.module.koa?.middlewares || []) {
         app.use(middleware)
     }

@@ -1,6 +1,6 @@
 {
   "name": "@yff/sn",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,7 +8,8 @@
     "sn": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "dev": "tsc && node dist/cli.js"
   },
   "keywords": [],
   "author": "",

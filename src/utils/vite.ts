@@ -9,10 +9,9 @@ function getImportPath(dir: string, cwd: string) {
 }
 
 export default function vitePlugin(
-        options: { wrapper?: string },
+        { wrapper }: { wrapper?: string },
         modules: Record<string, { pages: string, lambda: string, module: any }>) {
-    const wrapperPath = options.wrapper &&
-            require.resolve(options.wrapper, { paths: [process.cwd()] }) ||
+    const wrapperPath = wrapper && require.resolve(wrapper, { paths: [process.cwd()] }) ||
             path.join(__dirname, '..', '..', 'src', 'wrapper', 'web')
     return {
         name: 'sn-vite',
@@ -27,8 +26,9 @@ export default function vitePlugin(
         },
         load(id) {
             if (id.replace(/\\/g, '/').startsWith('/@yff/sn/')) {
-                const file = id.slice('/@yff/sn/'.length)
-                return fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8')
+                const file = id.slice('/@yff/sn/'.length),
+                    code = fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8')
+                return { code, map: null }
             }
             return
         },
@@ -36,31 +36,29 @@ export default function vitePlugin(
             const module = Object.entries(modules || { })
                 .find(([, { lambda }]) => isInside(id, lambda))
             if (id === '/@yff/sn/src/bootstrap.tsx') {
-                const imports = [] as string[]
-                const entries = Object.entries(modules).map(([key, { lambda }], idx) => {
-                    imports.push(`import * as sn_src_pages_${idx} from '/src/pages';`)
-                    return `{` +
-                            `const context = import.meta.glob('/src/pages/**/*.tsx'),` +
-                                `pages = sn_src_pages_${idx},` +
-                                `lambda = ${JSON.stringify(lambda)};` +
-                            `ctx[${JSON.stringify('/' + key)}] = { context, pages, lambda };` +
-                        `}`
-                    }).join(';')
-                return {
-                    code: imports.join(';') + `{ const ctx = window.SN_PAGE_CONTEXT = { }; ${entries} };` + code,
-                    map: null
+                const imports = [] as string[], entries = [] as string[]
+                for (const [key, { lambda }] of Object.entries(modules)) {
+                    const id = Math.random().toString(16).slice(2, 10)
+                    imports.push(`import * as sn_src_pages_${id} from '/src/pages';`)
+                    entries.push(`{
+                        const context = import.meta.glob('/src/pages/**/*.tsx'),
+                            pages = sn_src_pages_${id},
+                            lambda = ${JSON.stringify(lambda)};
+                        ctx[${JSON.stringify('/' + key)}] = { context, pages, lambda };
+                    }`)
                 }
+                code = imports.join(';') + `{
+                    const ctx = window.SN_PAGE_CONTEXT = { };
+                    ${entries.join(';')}
+                }; ${code}`
+                code = code.replace(/\n/g, '')
             } else if (module) {
                 const prefix = module[0]
-                return {
-                    code: `
-                        import wrapper from ${JSON.stringify(getImportPath(wrapperPath, path.dirname(id)))}
-                        export default wrapper(${JSON.stringify({ prefix })})`,
-                    map: null
-                }
-            } else {
-                return { code, map: null }
+                code = `
+                    import wrapper from ${JSON.stringify(getImportPath(wrapperPath, path.dirname(id)))}
+                    export default wrapper(${JSON.stringify({ prefix })})`
             }
+            return { code, map: null }
         },
     } as vite.PluginOption
 }

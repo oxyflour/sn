@@ -1,10 +1,10 @@
 import { Middleware } from "koa"
 
 export const koa = {
-    middlewares: [async (ctx, next) => {
+    middlewares: [/*async (ctx, next) => {
         console.log(ctx.url)
         await next()
-    }] as Middleware[]
+    }*/] as Middleware[]
 }
 
 export default {

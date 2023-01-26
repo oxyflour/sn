@@ -2,7 +2,7 @@ import os from 'os'
 import fs from 'mz/fs'
 import path from 'path'
 import ignore from 'ignore'
-import { S3 } from 'aws-sdk'
+import S3 from 'aws-sdk/clients/s3'
 import { c as tarc } from 'tar'
 import { CoreV1Api, AppsV1Api, KubeConfig, V1Service, V1Deployment, V1Pod } from '@kubernetes/client-node'
 
@@ -159,7 +159,7 @@ export const cluster = {
     }
 }
 
-async function makeDockerFile(base: string, npmConfig?: any) {
+export async function makeDockerFile(base: string, npmConfig?: any, workspace?: string) {
     const config = Object.entries(npmConfig || { })
         .map(([key, val]) => `RUN npm config set ${key} ${val}`).join('\n')
     return`
@@ -169,8 +169,9 @@ ${config}
 COPY package*.json ./
 RUN npm ci
 COPY . ./
-RUN node node_modules/.bin/sn build
-CMD node node_modules/.bin/sn start
+WORKDIR /app/${workspace}
+RUN npm exec sn build
+CMD npm exec sn start
 `
 }
 
@@ -193,7 +194,9 @@ export const kaniko = {
         namespace, image, s3Config, npmConfig,
         baseImage = 'node:14',
         kanikoImage = 'gcr.io/kaniko-project/executor:debug',
-        cacheRepo = ''
+        cacheRepo = '',
+        root = '',
+        workspace = ''
     }: {
         namespace: string
         image: string
@@ -202,6 +205,8 @@ export const kaniko = {
         baseImage?: string
         kanikoImage?: string
         cacheRepo?: string
+        root?: string
+        workspace?: string
     }) {
         const prefix = (image.split('/').pop() || 'no-image').replace(/@/g, '').replace(/\W/g, '-'),
             uid = `${prefix}-${Math.random().toString(16).slice(2, 10)}`,
@@ -210,7 +215,7 @@ export const kaniko = {
 
         const s3key = `${uid}.tgz`,
             s3 = new S3(s3Config),
-            buffer = await compress(process.cwd())
+            buffer = await compress(root || process.cwd())
         await s3.upload({ Bucket: s3Config.bucket, Key: s3key, Body: buffer }).promise()
 
         const api = kc.makeApiClient(CoreV1Api),
@@ -229,7 +234,7 @@ export const kaniko = {
                     '{}',
                 dockerFile: await fs.exists('Dockerfile') ?
                     await fs.readFile('Dockerfile', 'utf8') :
-                    await makeDockerFile(baseImage, npmConfig),
+                    await makeDockerFile(baseImage, npmConfig, workspace),
             }
         })
 
@@ -297,7 +302,7 @@ export const kaniko = {
             status = (await api.readNamespacedPodStatus(uid, namespace)).body.status
         }
 
-        await s3.deleteObject({ Bucket: s3Config.bucket, Key: s3key })
+        await s3.deleteObject({ Bucket: s3Config.bucket, Key: s3key }).promise()
         if (status && status.phase !== 'Succeeded') {
             const { body } = await api.readNamespacedPodLog(uid, namespace, 'kaniko')
             await api.deleteNamespacedPod(uid, namespace)
