@@ -130,7 +130,7 @@ function isMod(mod: string) {
 
 async function isTsMod(mod: string) {
     try {
-        await exec(`npx ts-node -e 'require("${mod}")'`)
+        await exec(`npm exec ts-node -e 'require("${mod}")'`)
         return true
     } catch (err) {
         return false
@@ -334,7 +334,7 @@ program.command('build').action(runAsyncOrExit(async function () {
     if (!hasIndexHtml) {
         await fs.unlink('index.html')
     }
-    await exec('npx tsc')
+    await exec('npm exec tsc')
 }))
 
 program.command('start').action(runAsyncOrExit(async function() {
