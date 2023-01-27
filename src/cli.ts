@@ -128,15 +128,6 @@ function isMod(mod: string) {
     }
 }
 
-async function isTsMod(mod: string) {
-    try {
-        await exec(`npm exec ts-node -e 'require("${mod}")'`)
-        return true
-    } catch (err) {
-        return false
-    }
-}
-
 async function prepareDirectory() {
     if (!(await fs.exists(path.join(options.pages, 'index.tsx')))) {
         await mkdirp(options.pages)
@@ -154,20 +145,6 @@ async function prepareDirectory() {
     if (deps.length) {
         console.log(`PREPARE: npm i -S ${deps.join(' ')}`)
         await exec(`npm i -S ${deps.join(' ')}`)
-    }
-    const devDeps = [] as string[]
-    for (const mod of [
-        '@types/react',
-        '@types/node',
-        '@types/react-router-dom',
-    ]) {
-        if (!(await isTsMod(mod))) {
-            devDeps.push(mod)
-        }
-    }
-    if (devDeps.length) {
-        console.log(`PREPARE: npm i -D ${devDeps.join(' ')}`)
-        await exec(`npm i -D ${devDeps.join(' ')}`)
     }
 }
 
