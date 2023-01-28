@@ -204,7 +204,6 @@ program.action(runAsyncOrExit(async function() {
         ws.on('join',  (evt, cb) => (emitter.on(evt, func(evt)), cb?.()))
         ws.on('leave', (evt, cb) => (emitter.off(evt, func(evt)), cb?.()))
         ws.on('emit',  (evt, data, cb) => (emitter.emit(evt, data), cb?.()))
-        ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
 
     root?.module.hooks?.init?.(server)
@@ -285,14 +284,13 @@ program.command('deploy').action(runAsyncOrExit(async function() {
         app,
         name: app,
         type: serviceType,
-        env: { SN_DEPLOY_PUBSUB: `ws://${pubsub}:${port}` }
+        env: { SN_DEPLOY_PUBSUB: options.emitter || `ws://${pubsub}:${port}` }
     })
     await cluster.deployPubsub({
         namespace, image, port,
         app: pubsub,
         name: pubsub,
         type: 'ClusterIP',
-        env: { SN_SERVE_PUBSUB: '1' }
     })
 
     console.log(`INFO: deployed image ${image} as ${app} in namespace ${namespace}`)
@@ -344,7 +342,6 @@ program.command('start').action(runAsyncOrExit(async function() {
         ws.on('join',  (evt, cb) => (emitter.on(evt, func(evt)), cb?.()))
         ws.on('leave', (evt, cb) => (emitter.off(evt, func(evt)), cb?.()))
         ws.on('emit',  (evt, data, cb) => (emitter.emit(evt, data), cb?.()))
-        ws.on('send', ({ evt, data }) => io.to(evt).emit(evt, data))
     })
 
     root?.module.hooks?.init?.(server)

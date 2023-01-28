@@ -33,7 +33,7 @@ export default class Emitter {
     }
     emit(evt: string, data: any) {
         if (this.ws) {
-            this.ws.emit('send', { evt, data })
+            this.ws.emit('emit', evt, data)
         } else {
             this.cbs(evt).forEach(cb => cb(data))
         }
